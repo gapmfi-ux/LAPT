@@ -17,8 +17,20 @@
   
   <!-- Favicon -->
   <link rel="icon" href="https://img.icons8.com/color/96/000000/loan.png" type="image/png">
+  
+  <!-- Anti-flicker CSS -->
+  <style>
+    /* Prevent flash of loading overlay */
+    .js #loading {
+      display: none !important;
+    }
+    
+    .js #app-container {
+      display: block !important;
+    }
+  </style>
 </head>
-<body>
+<body class="js">
   <!-- Loading Overlay -->
   <div id="loading" class="loading-overlay">
     <div class="spinner"></div>
@@ -256,26 +268,28 @@
           });
       });
     }
-    
-    // Initialize the application when DOM is loaded
+  </script>
+  
+  <!-- Simplified Initialization Script -->
+  <script>
+    // Single, clean initialization
     document.addEventListener('DOMContentLoaded', function() {
       console.log('DOM loaded, initializing application...');
       
-      // Hide loading overlay immediately
+      // Remove the anti-flicker class
+      document.body.classList.remove('js');
+      
+      // Force hide loading overlay immediately
       const loadingOverlay = document.getElementById('loading');
       if (loadingOverlay) {
         loadingOverlay.style.display = 'none';
+        loadingOverlay.remove(); // Remove it from DOM completely
       }
       
       // Show main app container
       const appContainer = document.getElementById('app-container');
       if (appContainer) {
         appContainer.classList.remove('hidden');
-      }
-      
-      // Initialize application
-      if (typeof initializeApp === 'function') {
-        initializeApp();
       }
       
       // Set current date
@@ -289,99 +303,29 @@
         });
       }
       
-      // Setup welcome stats
-      updateWelcomeStats();
-    });
-    
-    // Function to update welcome stats
-    async function updateWelcomeStats() {
-      try {
-        const counts = await gasAPI.getAllApplicationCounts();
-        
-        // Update welcome stats
-        const elements = {
-          'welcome-new-count': counts.new || 0,
-          'welcome-pending-count': counts.pending || 0,
-          'welcome-pending-approvals-count': counts.pendingApprovals || 0,
-          'welcome-approved-count': counts.approved || 0
-        };
-        
-        for (const [id, count] of Object.entries(elements)) {
-          const element = document.getElementById(id);
-          if (element) {
-            element.textContent = count;
-          }
-        }
-        
-        // Update sidebar badges
-        const badgeElements = {
-          'new-count': counts.new || 0,
-          'pending-count': counts.pending || 0,
-          'pending-approvals-count': counts.pendingApprovals || 0,
-          'approved-count': counts.approved || 0
-        };
-        
-        for (const [id, count] of Object.entries(badgeElements)) {
-          const element = document.getElementById(id);
-          if (element) {
-            element.textContent = count;
-            element.style.display = count > 0 ? 'inline-block' : 'none';
-          }
-        }
-        
-      } catch (error) {
-        console.error('Error updating stats:', error);
+      // Initialize application
+      if (typeof initializeApp === 'function') {
+        initializeApp();
       }
-    }
-    // Emergency loading overlay removal
-    document.addEventListener('DOMContentLoaded', function() {
-        console.log('Emergency DOM cleanup');
-        
-        // Remove all loading overlays
-        const loadingElements = document.querySelectorAll('.loading-overlay, #loading');
-        loadingElements.forEach(el => {
-            console.log('Removing loading element:', el.id || el.className);
-            el.style.display = 'none';
-            el.style.opacity = '0';
-            el.style.visibility = 'hidden';
-            el.remove();
-        });
-        
-        // Show app container
-        const appContainer = document.getElementById('app-container');
-        if (appContainer) {
-            console.log('Showing app container');
-            appContainer.classList.remove('hidden');
-            appContainer.style.display = 'block';
-            appContainer.style.opacity = '1';
-            appContainer.style.visibility = 'visible';
-        }
-        
-        // Remove loading class from body
-        document.body.classList.remove('loading');
-        
-        // Force redraw
-        document.body.style.display = 'none';
-        document.body.offsetHeight; // Trigger reflow
-        document.body.style.display = '';
     });
     
-    // Also hide loading on window load
+    // Emergency loading removal on window load
     window.addEventListener('load', function() {
-        console.log('Window loaded, hiding loading');
-        const loading = document.getElementById('loading');
-        if (loading) {
-            loading.style.display = 'none';
-            loading.remove();
-        }
-        
-        const appContainer = document.getElementById('app-container');
-        if (appContainer) {
-            appContainer.classList.remove('hidden');
-        }
-    });  
-    // Make functions global
-    window.updateWelcomeStats = updateWelcomeStats;
+      console.log('Window loaded, ensuring loading is hidden');
+      
+      // Final safety: remove any remaining loading overlays
+      const loadingElements = document.querySelectorAll('#loading, .loading-overlay');
+      loadingElements.forEach(el => {
+        el.style.display = 'none';
+        el.remove();
+      });
+      
+      // Ensure app container is visible
+      const appContainer = document.getElementById('app-container');
+      if (appContainer && appContainer.classList.contains('hidden')) {
+        appContainer.classList.remove('hidden');
+      }
+    });
   </script>
   
   <!-- Additional CSS for modals and welcome message -->
