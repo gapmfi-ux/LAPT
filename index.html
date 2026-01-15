@@ -380,4 +380,72 @@
     
     .welcome-card p {
       color: #64748b;
-      margin-bottom: 2rem
+      margin-bottom: 2rem;
+      font-size: 1.1rem;
+    }
+    
+    .welcome-stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 1.5rem;
+      margin-top: 2rem;
+    }
+    
+    .stat-card {
+      padding: 1.5rem;
+      background: #f8fafc;
+      border-radius: 0.75rem;
+      border: 1px solid #e2e8f0;
+      transition: transform 0.2s;
+    }
+    
+    .stat-card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+    }
+    
+    .stat-icon {
+      font-size: 2rem;
+      color: #3b82f6;
+      margin-bottom: 0.75rem;
+    }
+    
+    .stat-number {
+      font-size: 2rem;
+      font-weight: 700;
+      color: #1e293b;
+      margin-bottom: 0.25rem;
+    }
+    
+    .stat-label {
+      font-size: 0.875rem;
+      color: #64748b;
+      font-weight: 500;
+    }
+    
+    @media (max-width: 768px) {
+      .welcome-stats {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      
+      .welcome-card {
+        padding: 1.5rem;
+      }
+      
+      .welcome-icon {
+        font-size: 3rem;
+      }
+      
+      .welcome-card h1 {
+        font-size: 1.5rem;
+      }
+    }
+    
+    @media (max-width: 480px) {
+      .welcome-stats {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</body>
+</html>
