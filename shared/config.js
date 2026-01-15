@@ -17,9 +17,9 @@ const APP_CONFIG = {
   }
 };
 
-// Global state
-let APP_STATE = {
-  user: null,
-  token: null,
-  permissions: null
-};
+// Global state - REMOVED (this is now declared in api-client.js)
+// let APP_STATE = {
+//   user: null,
+//   token: null,
+//   permissions: null
+// };
