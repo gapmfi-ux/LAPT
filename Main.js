@@ -9,8 +9,31 @@ let currentViewingAppData = null;
 
 // ----------- INITIALIZATION -----------
 function initializeApp() {
+    console.log('Loan Application Tracker initialized');
+    
+    // FORCE HIDE LOADING OVERLAY - Add this line
+function forceHideLoading() {
+    // Hide ALL loading overlays
+    const loadingElements = document.querySelectorAll('.loading-overlay, #loading, #loading-overlay');
+    loadingElements.forEach(element => {
+        element.style.display = 'none';
+    });
+    
+    // Show app container
+    const appContainer = document.getElementById('app-container');
+    if (appContainer) {
+        appContainer.classList.remove('hidden');
+    }
+}    
     cacheElements();
     
+    // Hide loading overlay
+function hideLoading() {
+    forceHideLoading(); // Use the new function
+    
+    // Additional cleanup if needed
+    document.body.style.overflow = 'auto';
+}
     // Set current date
     if (cachedElements['current-date']) {
         cachedElements['current-date'].textContent = new Date().toLocaleDateString('en-US', {
@@ -32,7 +55,6 @@ function initializeApp() {
     // Setup event listeners
     setupEventListeners();
 }
-
 function cacheElements() {
     const elements = {
         'login-modal': 'login-modal',
