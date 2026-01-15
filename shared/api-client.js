@@ -54,5 +54,76 @@ function loadAppState() {
     if (permissions) APP_STATE.permissions = JSON.parse(permissions);
 }
 
+
+// API Helper Functions
+const gasAPI = {
+    // Authentication
+    authenticateUser: function(userName) {
+        const url = `${GAS_CONFIG.WEB_APP_URL}?action=authenticate`;
+        return fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ userName })
+        }).then(response => response.json());
+    },
+    
+    // Application functions
+    getNewApplications: function() {
+        return this.callAPI('getNewApplications');
+    },
+    
+    getPendingApplications: function() {
+        return this.callAPI('getPendingApplications');
+    },
+    
+    getPendingApprovalApplications: function() {
+        return this.callAPI('getPendingApprovalApplications');
+    },
+    
+    getApprovedApplications: function() {
+        return this.callAPI('getApprovedApplications');
+    },
+    
+    getAllApplicationCounts: function() {
+        return this.callAPI('getAllApplicationCounts');
+    },
+    
+    // User management
+    getAllUsers: function() {
+        return this.callAPI('getAllUsers');
+    },
+    
+    addUser: function(userData) {
+        return this.callAPI('addUser', userData);
+    },
+    
+    deleteUser: function(userName) {
+        return this.callAPI('deleteUser', { userName });
+    },
+    
+    // Generic API call
+    callAPI: function(action, data = {}) {
+        const url = `${GAS_CONFIG.WEB_APP_URL}?action=${action}`;
+        
+        return fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        }).then(response => response.json());
+    }
+};
+
+
+
 // Initialize state
 loadAppState();
+
+// Make available globally
+window.gasAPI = gasAPI;
+window.getConfig = getConfig;
+window.getAppState = getAppState;
+window.updateAppState = updateAppState;
