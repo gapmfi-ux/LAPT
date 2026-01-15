@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <title>Loan Application Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  <link rel="stylesheet" href="Main.css">
+  <link rel="stylesheet" href="applications/AppsTables.css">
+</head>
+<body>
+  <div id="app-container">
+    <!-- Content will be loaded dynamically -->
+    <div id="loading-screen">
+      <div class="spinner"></div>
+      <p>Loading application...</p>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="shared/config.js"></script>
+  <script src="shared/api-client.js"></script>
+  <script src="Main.js"></script>
+  
+  <script>
+    // Check authentication on load
+    document.addEventListener('DOMContentLoaded', async () => {
+      const user = localStorage.getItem('loggedInName');
+      if (!user) {
+        // Load login page
+        const response = await fetch('login/Login.html');
+        const html = await response.text();
+        document.getElementById('app-container').innerHTML = html;
+        
+        // Load login scripts
+        const loginScript = document.createElement('script');
+        loginScript.src = 'login/Login.js';
+        document.body.appendChild(loginScript);
+        
+        const loginCSS = document.createElement('link');
+        loginCSS.rel = 'stylesheet';
+        loginCSS.href = 'login/Login.css';
+        document.head.appendChild(loginCSS);
+      } else {
+        // Load main dashboard
+        loadMainDashboard();
+      }
+    });
+    
+    async function loadMainDashboard() {
+      // Implementation in Main.js
+    }
+  </script>
+</body>
+</html>
