@@ -333,7 +333,53 @@
         console.error('Error updating stats:', error);
       }
     }
+    // Emergency loading overlay removal
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('Emergency DOM cleanup');
+        
+        // Remove all loading overlays
+        const loadingElements = document.querySelectorAll('.loading-overlay, #loading');
+        loadingElements.forEach(el => {
+            console.log('Removing loading element:', el.id || el.className);
+            el.style.display = 'none';
+            el.style.opacity = '0';
+            el.style.visibility = 'hidden';
+            el.remove();
+        });
+        
+        // Show app container
+        const appContainer = document.getElementById('app-container');
+        if (appContainer) {
+            console.log('Showing app container');
+            appContainer.classList.remove('hidden');
+            appContainer.style.display = 'block';
+            appContainer.style.opacity = '1';
+            appContainer.style.visibility = 'visible';
+        }
+        
+        // Remove loading class from body
+        document.body.classList.remove('loading');
+        
+        // Force redraw
+        document.body.style.display = 'none';
+        document.body.offsetHeight; // Trigger reflow
+        document.body.style.display = '';
+    });
     
+    // Also hide loading on window load
+    window.addEventListener('load', function() {
+        console.log('Window loaded, hiding loading');
+        const loading = document.getElementById('loading');
+        if (loading) {
+            loading.style.display = 'none';
+            loading.remove();
+        }
+        
+        const appContainer = document.getElementById('app-container');
+        if (appContainer) {
+            appContainer.classList.remove('hidden');
+        }
+    });  
     // Make functions global
     window.updateWelcomeStats = updateWelcomeStats;
   </script>
