@@ -19,42 +19,6 @@
   <link rel="icon" href="https://img.icons8.com/color/96/000000/loan.png" type="image/png">
 </head>
 <body>
-  <!-- Loading Overlay -->
-  <div id="loading" class="loading-overlay">
-    <div class="spinner"></div>
-    <p>Loading...</p>
-  </div>
-
-  <!-- Success Modal -->
-  <div id="success-modal" class="modal-overlay">
-    <div class="modal-message">
-      <i class="fas fa-check-circle success-icon"></i>
-      <div id="success-message"></div>
-      <button onclick="closeSuccessModal()" class="btn-primary">OK</button>
-    </div>
-  </div>
-
-  <!-- Error Modal -->
-  <div id="error-modal" class="modal-overlay">
-    <div class="modal-message">
-      <i class="fas fa-exclamation-circle error-icon"></i>
-      <div id="error-message"></div>
-      <button onclick="closeErrorModal()" class="btn-primary">OK</button>
-    </div>
-  </div>
-
-  <!-- Confirmation Modal -->
-  <div id="confirmation-modal" class="modal-overlay">
-    <div class="modal-message">
-      <i class="fas fa-question-circle confirmation-icon"></i>
-      <div id="confirmation-message"></div>
-      <div class="modal-actions">
-        <button onclick="closeConfirmationModal(false)" class="btn-secondary">Cancel</button>
-        <button onclick="closeConfirmationModal(true)" class="btn-primary">Confirm</button>
-      </div>
-    </div>
-  </div>
-
   <!-- Main App Container -->
   <div id="app-container" class="hidden">
     <!-- Top Menu -->
