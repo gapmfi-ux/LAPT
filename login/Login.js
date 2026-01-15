@@ -21,7 +21,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
-function handleLoginSubmit(e) {
+async function handleLoginSubmit(e) {
     e.preventDefault();
     
     const name = document.getElementById('login-name').value.trim();
@@ -36,38 +36,50 @@ function handleLoginSubmit(e) {
         loadingOverlay.style.display = 'flex';
     }
     
-    // Use the correct API endpoint
-    fetch(`${getConfig().WEB_APP_URL}?action=authenticate&userName=${encodeURIComponent(name)}`)
-        .then(response => response.json())
-        .then(data => {
-            // Hide loading
-            if (loadingOverlay) {
-                loadingOverlay.style.display = 'none';
-            }
+    try {
+        // Check if gasAPI exists (it might not be loaded yet)
+        if (typeof gasAPI === 'undefined') {
+            // Fallback to direct API call
+            const response = await fetch(`${getConfig().WEB_APP_URL}?action=authenticate&userName=${encodeURIComponent(name)}`);
+            const data = await response.json();
             
             if (data.success) {
                 handleSuccessfulLogin(data.user);
             } else {
                 handleFailedLogin(data.message || 'Authentication failed');
             }
-        })
-        .catch(error => {
-            // Hide loading
-            if (loadingOverlay) {
-                loadingOverlay.style.display = 'none';
-            }
+        } else {
+            // Use gasAPI if available
+            const result = await gasAPI.authenticateUser(name);
             
-            console.error('Authentication error:', error);
-            // For demo purposes, fallback to successful login
-            handleSuccessfulLogin(name);
-        });
+            if (result.success) {
+                handleSuccessfulLogin(result.user);
+            } else {
+                handleFailedLogin(result.message || 'Authentication failed');
+            }
+        }
+    } catch (error) {
+        console.error('Authentication error:', error);
+        // For demo/fallback purposes
+        handleSuccessfulLogin(name);
+    } finally {
+        // Hide loading
+        if (loadingOverlay) {
+            loadingOverlay.style.display = 'none';
+        }
+    }
 }
 
-function handleSuccessfulLogin(name) {
+function handleSuccessfulLogin(userData) {
     // Store user info in localStorage
-    localStorage.setItem('loggedInName', name);
-    localStorage.setItem('userRole', 'User'); // Default role
-    localStorage.setItem('userLevel', '1'); // Default level
+    localStorage.setItem('loggedInName', userData.name || userData);
+    localStorage.setItem('userRole', userData.role || 'User');
+    localStorage.setItem('userLevel', userData.level || '1');
+    
+    // Store full user object if available
+    if (typeof userData === 'object') {
+        localStorage.setItem('user', JSON.stringify(userData));
+    }
     
     // Redirect to main application
     window.location.href = 'index.html';
