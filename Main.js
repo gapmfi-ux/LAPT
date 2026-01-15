@@ -12,7 +12,6 @@ function showLoading() {
     const loading = document.getElementById('loading');
     if (loading) {
         loading.style.display = 'flex';
-        // Add body class to prevent scrolling
         document.body.style.overflow = 'hidden';
     }
 }
@@ -21,8 +20,8 @@ function hideLoading() {
     const loading = document.getElementById('loading');
     if (loading) {
         loading.style.display = 'none';
-        loading.classList.add('hidden');
-        // Restore body scrolling
+        // Remove it from DOM to prevent it from showing again
+        loading.remove();
         document.body.style.overflow = 'auto';
     }
 }
@@ -32,7 +31,7 @@ function forceHideAllLoadingOverlays() {
     const loadingElements = document.querySelectorAll('#loading, .loading-overlay');
     loadingElements.forEach(element => {
         element.style.display = 'none';
-        element.classList.add('hidden');
+        element.remove(); // Remove from DOM
     });
     
     // Ensure app container is visible
@@ -50,9 +49,7 @@ function forceHideAllLoadingOverlays() {
 function initializeApp() {
     console.log('Loan Application Tracker initialized');
     
-    // FORCE HIDE ANY LINGERING LOADING OVERLAY IMMEDIATELY
-    forceHideAllLoadingOverlays();
-    
+    // Cache elements
     cacheElements();
     
     // Set current date
@@ -461,14 +458,24 @@ function refreshApplications() {
 document.addEventListener('DOMContentLoaded', function() {
     console.log('DOM loaded, initializing application...');
     
-    // Force hide loading overlay immediately
-    forceHideAllLoadingOverlays();
+    // Immediately hide the loading overlay BEFORE anything else
+    const loadingOverlay = document.getElementById('loading');
+    if (loadingOverlay) {
+        loadingOverlay.style.display = 'none';
+        loadingOverlay.remove(); // Remove from DOM to prevent it from showing again
+    }
     
-    // Add class to body to fix loading overlay
-    document.body.classList.add('loading-fixed');
+    // Show the main app container
+    const appContainer = document.getElementById('app-container');
+    if (appContainer) {
+        appContainer.classList.remove('hidden');
+        appContainer.style.display = 'block';
+    }
     
     // Initialize application
-    initializeApp();
+    setTimeout(() => {
+        initializeApp();
+    }, 100); // Small delay to ensure DOM is ready
 });
 
 // Also hide loading when window fully loads (as backup)
@@ -476,16 +483,21 @@ window.addEventListener('load', function() {
     console.log('Window loaded, ensuring loading is hidden');
     
     // Final safety: remove any remaining loading overlays
-    forceHideAllLoadingOverlays();
+    const loadingElements = document.querySelectorAll('#loading, .loading-overlay');
+    loadingElements.forEach(element => {
+        element.style.display = 'none';
+        element.remove();
+    });
     
     // Ensure app container is visible
     const appContainer = document.getElementById('app-container');
-    if (appContainer && appContainer.classList.contains('hidden')) {
+    if (appContainer) {
         appContainer.classList.remove('hidden');
+        appContainer.style.display = 'block';
     }
     
-    // Mark as loaded
-    document.body.classList.add('loading-fixed');
+    // Restore scrolling
+    document.body.style.overflow = 'auto';
 });
 
 // Emergency timeout to ensure loading overlay disappears
@@ -493,9 +505,16 @@ setTimeout(function() {
     const loading = document.getElementById('loading');
     if (loading && loading.style.display !== 'none') {
         console.warn('Emergency: Forcing loading overlay to hide');
-        forceHideAllLoadingOverlays();
+        loading.style.display = 'none';
+        loading.remove();
     }
-}, 5000); // 5 second emergency timeout
+    
+    const appContainer = document.getElementById('app-container');
+    if (appContainer && appContainer.classList.contains('hidden')) {
+        appContainer.classList.remove('hidden');
+        appContainer.style.display = 'block';
+    }
+}, 3000); // 3 second emergency timeout
 
 // ===== MAKE FUNCTIONS GLOBALLY AVAILABLE =====
 window.showSection = showSection;
