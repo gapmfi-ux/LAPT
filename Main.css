@@ -70,13 +70,14 @@ body {
   background: var(--gray-50);
   color: var(--gray-800);
   line-height: 1.5;
+  overflow-x: hidden;
 }
 
 .hidden {
   display: none !important;
 }
 
-/* ===== LOADING OVERLAY ===== */
+/* ===== LOADING OVERLAY FIXES ===== */
 .loading-overlay {
   display: none;
   position: fixed;
@@ -84,11 +85,17 @@ body {
   left: 0;
   width: 100%;
   height: 100%;
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.95);
   z-index: 9999;
   justify-content: center;
   align-items: center;
   flex-direction: column;
+}
+
+.loading-overlay.hidden {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
 }
 
 .spinner {
@@ -127,15 +134,8 @@ body {
   box-shadow: var(--shadow-lg);
   text-align: center;
   min-width: 300px;
-}
-
-.modal-message h2 {
-  margin-bottom: var(--space-3);
-  color: var(--primary-600);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
+  max-width: 90%;
+  margin: var(--space-4);
 }
 
 .success-icon {
@@ -144,44 +144,23 @@ body {
   margin-bottom: var(--space-3);
 }
 
-#login-form .form-group {
+.error-icon {
+  font-size: 3rem;
+  color: var(--danger-500);
   margin-bottom: var(--space-3);
-  text-align: left;
 }
 
-#login-form .form-label {
-  display: block;
-  margin-bottom: var(--space-1);
-  font-weight: 600;
-  color: var(--gray-700);
-  font-size: var(--text-sm);
+.confirmation-icon {
+  font-size: 3rem;
+  color: var(--warning-500);
+  margin-bottom: var(--space-3);
 }
 
-#login-form .form-input {
-  width: 100%;
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--gray-300);
-  border-radius: var(--radius-md);
-  font-size: var(--text-sm);
-}
-
-#login-form .form-input:focus {
-  outline: none;
-  border-color: var(--primary-500);
-}
-
-#login-form .form-actions {
+.modal-actions {
   display: flex;
+  gap: 0.5rem;
   justify-content: center;
-  width: 100%;
-  margin-top: var(--space-3);
-  padding-top: 0;
-  border-top: none;
-}
-
-#success-modal .btn-primary {
-  display: block;
-  margin: 0 auto;
+  margin-top: 1.5rem;
 }
 
 /* ===== TOP MENU ===== */
@@ -215,6 +194,7 @@ body {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  transition: background-color var(--transition-fast);
 }
 
 .add-app-btn:hover {
@@ -282,6 +262,7 @@ body {
   color: var(--gray-600);
   padding: var(--space-1);
   border-radius: var(--radius-base);
+  transition: color var(--transition-fast);
 }
 
 .logout-btn:hover {
@@ -378,6 +359,82 @@ body {
   flex: 1;
   padding: var(--space-4);
   overflow-y: auto;
+  background: var(--gray-50);
+}
+
+/* ===== WELCOME MESSAGE ===== */
+.welcome-message {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 500px;
+  padding: 2rem;
+}
+
+.welcome-card {
+  text-align: center;
+  max-width: 800px;
+  padding: 3rem;
+  background: white;
+  border-radius: 1rem;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+}
+
+.welcome-icon {
+  font-size: 4rem;
+  color: #2563eb;
+  margin-bottom: 1.5rem;
+}
+
+.welcome-card h1 {
+  color: #1e293b;
+  margin-bottom: 0.5rem;
+  font-size: 2rem;
+}
+
+.welcome-card p {
+  color: #64748b;
+  margin-bottom: 2rem;
+  font-size: 1.1rem;
+}
+
+.welcome-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1.5rem;
+  margin-top: 2rem;
+}
+
+.stat-card {
+  padding: 1.5rem;
+  background: #f8fafc;
+  border-radius: 0.75rem;
+  border: 1px solid #e2e8f0;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.stat-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+}
+
+.stat-icon {
+  font-size: 2rem;
+  color: #3b82f6;
+  margin-bottom: 0.75rem;
+}
+
+.stat-number {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin-bottom: 0.25rem;
+}
+
+.stat-label {
+  font-size: 0.875rem;
+  color: #64748b;
+  font-weight: 500;
 }
 
 /* ===== BUTTON STYLES ===== */
@@ -393,6 +450,7 @@ body {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  transition: background-color var(--transition-fast);
 }
 
 .btn-primary:hover {
@@ -408,28 +466,11 @@ body {
   cursor: pointer;
   font-size: var(--text-sm);
   font-weight: 600;
+  transition: background-color var(--transition-fast);
 }
 
 .btn-secondary:hover {
   background: var(--gray-200);
-}
-
-.btn-outline {
-  background: transparent;
-  color: var(--primary-600);
-  border: 1px solid var(--primary-500);
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  font-size: var(--text-sm);
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.btn-outline:hover {
-  background: var(--primary-500);
-  color: var(--white);
 }
 
 /* ===== FORM STYLES ===== */
@@ -452,20 +493,12 @@ body {
   border-radius: var(--radius-md);
   font-size: var(--text-sm);
   background: var(--white);
+  transition: border-color var(--transition-fast);
 }
 
 .form-input:focus {
   outline: none;
   border-color: var(--primary-500);
-}
-
-.form-actions {
-  display: flex;
-  gap: var(--space-3);
-  justify-content: flex-end;
-  margin-top: var(--space-5);
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--gray-200);
 }
 
 /* ===== RESPONSIVE DESIGN ===== */
@@ -488,6 +521,7 @@ body {
   .app-title {
     order: 1;
     flex: 1;
+    font-size: var(--text-lg);
   }
   
   .menu-left {
@@ -501,8 +535,54 @@ body {
     margin-top: var(--space-2);
   }
   
+  .welcome-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .welcome-card {
+    padding: 1.5rem;
+  }
+  
+  .welcome-icon {
+    font-size: 3rem;
+  }
+  
+  .welcome-card h1 {
+    font-size: 1.5rem;
+  }
+  
   .modal-message {
     min-width: 90%;
     margin: var(--space-4);
   }
+}
+
+@media (max-width: 480px) {
+  .welcome-stats {
+    grid-template-columns: 1fr;
+  }
+  
+  .top-menu {
+    padding: var(--space-2) var(--space-3);
+  }
+  
+  .main-content {
+    padding: var(--space-3);
+  }
+  
+  .welcome-message {
+    padding: 1rem;
+  }
+}
+
+/* ===== LOADING OVERLAY EMERGENCY FIX ===== */
+body.loading-fixed .loading-overlay {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+}
+
+#app-container.loaded {
+  opacity: 1;
+  visibility: visible;
 }
