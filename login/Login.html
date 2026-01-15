@@ -1,50 +1,64 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - Loan Application Tracker</title>
-    <link rel="stylesheet" href="login/Login.css">
+  <base target="_top">
+  <title>Login - Loan Application Tracker</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#2563eb">
+  
+  <!-- Font Awesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  
+  <!-- CSS Files -->
+  <link rel="stylesheet" href="Main.css">
+  
+  <!-- Favicon -->
+  <link rel="icon" href="https://img.icons8.com/color/96/000000/loan.png" type="image/png">
 </head>
-<body>
-    <div class="login-container">
-        <div class="login-card">
-            <div class="login-header">
-                <i class="fas fa-layer-group"></i>
-                <h1>Loan Application Tracker</h1>
-                <p class="login-subtitle">Please sign in to continue</p>
-            </div>
-            
-            <div class="login-body">
-                <form id="login-form">
-                    <div class="form-group">
-                        <label for="login-name" class="form-label">
-                            <i class="fas fa-user"></i> Your Name
-                        </label>
-                        <input type="text" id="login-name" class="form-input" 
-                               placeholder="Enter your full name" required autofocus>
-                        <div class="form-hint">
-                            Enter the name registered in the system
-                        </div>
-                    </div>
-                    
-                    <div class="form-actions">
-                        <button type="submit" class="btn btn-primary btn-block">
-                            <i class="fas fa-sign-in-alt"></i> Sign In
-                        </button>
-                    </div>
-                </form>
-                
-                <div class="login-footer">
-                    <p>
-                        <i class="fas fa-info-circle"></i>
-                        If you're having trouble logging in, please contact your administrator.
-                    </p>
-                </div>
-            </div>
-        </div>
-    </div>
+<body class="login-page">
+  <!-- Loading Overlay -->
+  <div id="loading" class="loading-overlay">
+    <div class="spinner"></div>
+    <p>Loading...</p>
+  </div>
 
-    <script src="login/Login.js"></script>
+  <!-- Login Container -->
+  <div class="login-container">
+    <div class="login-card">
+      <div class="login-header">
+        <i class="fas fa-layer-group login-icon"></i>
+        <h1>Loan Application Tracker</h1>
+        <p>Please sign in to continue</p>
+      </div>
+      
+      <form id="login-form" class="login-form">
+        <div class="form-group">
+          <label class="form-label">Enter Your Name</label>
+          <input type="text" class="form-input" id="login-name" required autofocus placeholder="Your full name">
+        </div>
+        
+        <div class="form-actions">
+          <button type="submit" class="btn-primary btn-login">
+            <i class="fas fa-sign-in-alt"></i> Sign In
+          </button>
+        </div>
+      </form>
+      
+      <div class="login-footer">
+        <p class="copyright">© 2024 Loan Application Tracker System</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Error Modal (for login errors) -->
+  <div id="error-modal" class="modal-overlay">
+    <div class="modal-message">
+      <i class="fas fa-exclamation-circle error-icon"></i>
+      <div id="error-message"></div>
+      <button onclick="closeErrorModal()" class="btn-primary">OK</button>
+    </div>
+  </div>
+
+  <script src="login.js"></script>
 </body>
 </html>
