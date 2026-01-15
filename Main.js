@@ -7,12 +7,22 @@ let notificationCheckInterval;
 let refreshInterval;
 let currentViewingAppData = null;
 
+// ===== AUTHENTICATION CHECK =====
+function checkAuthentication() {
+    const loggedInName = localStorage.getItem('loggedInName');
+    if (!loggedInName) {
+        // Redirect to login page
+        window.location.href = 'login.html';
+        return false;
+    }
+    return true;
+}
+
 // ===== LOADING OVERLAY MANAGEMENT =====
 function showLoading() {
     const loading = document.getElementById('loading');
     if (loading) {
         loading.style.display = 'flex';
-        // Add body class to prevent scrolling
         document.body.style.overflow = 'hidden';
     }
 }
@@ -21,39 +31,26 @@ function hideLoading() {
     const loading = document.getElementById('loading');
     if (loading) {
         loading.style.display = 'none';
-        loading.classList.add('hidden');
-        // Restore body scrolling
         document.body.style.overflow = 'auto';
     }
-}
-
-function forceHideAllLoadingOverlays() {
-    // Hide ALL possible loading overlays
-    const loadingElements = document.querySelectorAll('#loading, .loading-overlay');
-    loadingElements.forEach(element => {
-        element.style.display = 'none';
-        element.classList.add('hidden');
-    });
-    
-    // Ensure app container is visible
-    const appContainer = document.getElementById('app-container');
-    if (appContainer) {
-        appContainer.classList.remove('hidden');
-        appContainer.style.display = 'block';
-    }
-    
-    // Restore body scrolling
-    document.body.style.overflow = 'auto';
 }
 
 // ===== INITIALIZATION =====
 function initializeApp() {
     console.log('Loan Application Tracker initialized');
     
-    // FORCE HIDE ANY LINGERING LOADING OVERLAY IMMEDIATELY
-    forceHideAllLoadingOverlays();
+    // Check authentication
+    if (!checkAuthentication()) {
+        return;
+    }
     
+    // Cache elements
     cacheElements();
+    
+    // Set current user display
+    const loggedInName = localStorage.getItem('loggedInName');
+    const userRole = localStorage.getItem('userRole');
+    setLoggedInUser(loggedInName, userRole);
     
     // Set current date
     if (cachedElements['current-date']) {
@@ -62,7 +59,7 @@ function initializeApp() {
         });
     }
     
-    // Show dashboard immediately (no login required)
+    // Show dashboard
     showDashboard();
     
     // Initialize browser notifications
@@ -101,6 +98,13 @@ function cacheElements() {
     
     for (const [key, id] of Object.entries(elements)) {
         cachedElements[key] = document.getElementById(id);
+    }
+}
+
+function setLoggedInUser(name, role = '') {
+    const userElement = document.getElementById('logged-in-user');
+    if (userElement) {
+        userElement.textContent = role ? `${name} (${role})` : name;
     }
 }
 
@@ -340,17 +344,12 @@ function showNewApplicationModal() {
 
 function logout() {
     if (confirm('Are you sure you want to logout?')) {
-        // Clear any stored data
+        // Clear stored data
         localStorage.clear();
         sessionStorage.clear();
         
-        // Show success message
-        showSuccessModal('Logged out successfully!');
-        
-        // Reload page after a delay
-        setTimeout(() => {
-            window.location.reload();
-        }, 1500);
+        // Redirect to login page
+        window.location.href = 'login.html';
     }
 }
 
@@ -417,8 +416,8 @@ function setupNotificationListener() {
 function checkForNewApplications() {
     // Simulate checking for new applications
     if (document.visibilityState !== 'visible') {
-        const userName = "Current User";
-        const userRole = "User";
+        const userName = localStorage.getItem('loggedInName') || "Current User";
+        const userRole = localStorage.getItem('userRole') || "User";
         const count = Math.floor(Math.random() * 3);
         
         if (count > 0) {
@@ -461,31 +460,16 @@ function refreshApplications() {
 document.addEventListener('DOMContentLoaded', function() {
     console.log('DOM loaded, initializing application...');
     
-    // Force hide loading overlay immediately
-    forceHideAllLoadingOverlays();
-    
-    // Add class to body to fix loading overlay
-    document.body.classList.add('loading-fixed');
-    
-    // Initialize application
-    initializeApp();
-});
-
-// Also hide loading when window fully loads (as backup)
-window.addEventListener('load', function() {
-    console.log('Window loaded, ensuring loading is hidden');
-    
-    // Final safety: remove any remaining loading overlays
-    forceHideAllLoadingOverlays();
-    
-    // Ensure app container is visible
-    const appContainer = document.getElementById('app-container');
-    if (appContainer && appContainer.classList.contains('hidden')) {
-        appContainer.classList.remove('hidden');
+    // Immediately hide the loading overlay
+    const loadingOverlay = document.getElementById('loading');
+    if (loadingOverlay) {
+        loadingOverlay.style.display = 'none';
     }
     
-    // Mark as loaded
-    document.body.classList.add('loading-fixed');
+    // Initialize application
+    setTimeout(() => {
+        initializeApp();
+    }, 100);
 });
 
 // Emergency timeout to ensure loading overlay disappears
@@ -493,9 +477,9 @@ setTimeout(function() {
     const loading = document.getElementById('loading');
     if (loading && loading.style.display !== 'none') {
         console.warn('Emergency: Forcing loading overlay to hide');
-        forceHideAllLoadingOverlays();
+        loading.style.display = 'none';
     }
-}, 5000); // 5 second emergency timeout
+}, 3000);
 
 // ===== MAKE FUNCTIONS GLOBALLY AVAILABLE =====
 window.showSection = showSection;
