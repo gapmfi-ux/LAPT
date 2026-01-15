@@ -4,52 +4,115 @@
   <base target="_top">
   <title>Loan Application Dashboard</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#2563eb">
+  
+  <!-- Font Awesome -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  
+  <!-- CSS Files -->
   <link rel="stylesheet" href="Main.css">
   <link rel="stylesheet" href="applications/AppsTables.css">
+  <link rel="stylesheet" href="user-management/UserMgt.css">
+  <link rel="stylesheet" href="login/Login.css">
 </head>
 <body>
-  <div id="app-container">
-    <!-- Content will be loaded dynamically -->
-    <div id="loading-screen">
-      <div class="spinner"></div>
-      <p>Loading application...</p>
+  <!-- Loading Overlay -->
+  <div id="loading" class="loading-overlay">
+    <div class="spinner"></div>
+    <p>Loading...</p>
+  </div>
+
+  <!-- Login Modal -->
+  <div id="login-modal" class="modal-overlay">
+    <div class="modal-message">
+      <h2><i class="fas fa-sign-in-alt"></i> Login</h2>
+      <form id="login-form">
+        <div class="form-group">
+          <label class="form-label">Enter Your Name</label>
+          <input type="text" class="form-input" id="login-name" required autofocus>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn-primary">Login</button>
+        </div>
+      </form>
     </div>
   </div>
 
-  <!-- Scripts -->
+  <!-- Success Modal -->
+  <div id="success-modal" class="modal-overlay">
+    <div class="modal-message">
+      <i class="fas fa-check-circle success-icon"></i>
+      <div id="success-message"></div>
+      <button onclick="closeSuccessModal()" class="btn-primary">OK</button>
+    </div>
+  </div>
+
+  <!-- Main App Container -->
+  <div id="app-container" class="hidden">
+    <!-- Top Menu -->
+    <div class="top-menu">
+      <div class="menu-left">
+        <button class="add-app-btn" onclick="showNewApplicationModal()">
+          <i class="fas fa-plus"></i> Add New Application
+        </button>
+      </div>
+      <div class="app-title">
+        <i class="fas fa-layer-group"></i> LOAN APPLICATION TRACKER
+      </div>
+      <div class="user-info">
+        <span class="date-display" id="current-date"></span>
+        <div class="user-notification-container">
+          <span id="logged-in-user"></span>
+          <span id="user-notification-badge" class="notification-badge"></span>
+        </div>
+        <button class="logout-btn" onclick="logout()" title="Logout">
+          <i class="fas fa-sign-out-alt"></i>
+        </button>
+      </div>
+    </div>
+    
+    <div class="container">
+      <!-- Side Menu -->
+      <div class="side-menu">
+        <div class="menu-section">
+          <div class="menu-title"><i class="fas fa-tasks"></i> Applications</div>
+          <button class="menu-btn" onclick="showSection('new')">
+            <i class="fas fa-file-alt"></i> New <span class="badge" id="new-count">0</span>
+          </button>
+          <button class="menu-btn active" onclick="showSection('pending')">
+            <i class="fas fa-clock"></i> Pending <span class="badge" id="pending-count">0</span>
+          </button>
+          <button class="menu-btn" onclick="showSection('pending-approvals')">
+            <i class="fas fa-hourglass-half"></i> Pending Approvals <span class="badge" id="pending-approvals-count">0</span>
+          </button>
+          <button class="menu-btn" onclick="showSection('approved')">
+            <i class="fas fa-check-circle"></i> Approved <span class="badge" id="approved-count">0</span>
+          </button>
+        </div>
+        <div class="menu-section">
+          <div class="menu-title"><i class="fas fa-users"></i> User Management</div>
+          <button class="menu-btn" onclick="showSection('add-user')">
+            <i class="fas fa-user-plus"></i> Add User
+          </button>
+          <button class="menu-btn" onclick="showSection('users-list')">
+            <i class="fas fa-list"></i> Users List
+          </button>
+        </div>
+      </div>
+      
+      <!-- Main Content Area -->
+      <div class="main-content" id="main-content">
+        <!-- Content loads dynamically here -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Shared Scripts -->
   <script src="shared/config.js"></script>
   <script src="shared/api-client.js"></script>
-  <script src="Main.js"></script>
+  <script src="workflow/AccessStage.js"></script>
   
-  <script>
-    // Check authentication on load
-    document.addEventListener('DOMContentLoaded', async () => {
-      const user = localStorage.getItem('loggedInName');
-      if (!user) {
-        // Load login page
-        const response = await fetch('login/Login.html');
-        const html = await response.text();
-        document.getElementById('app-container').innerHTML = html;
-        
-        // Load login scripts
-        const loginScript = document.createElement('script');
-        loginScript.src = 'login/Login.js';
-        document.body.appendChild(loginScript);
-        
-        const loginCSS = document.createElement('link');
-        loginCSS.rel = 'stylesheet';
-        loginCSS.href = 'login/Login.css';
-        document.head.appendChild(loginCSS);
-      } else {
-        // Load main dashboard
-        loadMainDashboard();
-      }
-    });
-    
-    async function loadMainDashboard() {
-      // Implementation in Main.js
-    }
-  </script>
+  <!-- Main App Script -->
+  <script src="Main.js"></script>
 </body>
 </html>
