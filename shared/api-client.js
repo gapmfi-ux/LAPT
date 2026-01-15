@@ -1,99 +1,58 @@
-class GASAPIClient {
-  constructor(baseUrl) {
-    this.baseUrl = baseUrl;
-  }
+// Configuration for GitHub Pages deployment
+const GAS_CONFIG = {
+    // Replace this with your Google Apps Script Web App URL
+    // Format: https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec
+    WEB_APP_URL: 'https://script.google.com/macros/s/AKfycbylE1YhW-h5CddXCSCDdfj2co-JYOg8PdBm5ZAj49DqLUOId1bYeoBZGRruQcFuNzaMZg/exec',
+    
+    // Application settings
+    APP_NAME: 'Loan Application Tracker',
+    VERSION: '1.0.0',
+    
+    // Default settings
+    DEFAULT_PAGE_SIZE: 20,
+    
+    // Notification settings
+    NOTIFICATION_CHECK_INTERVAL: 30000, // 30 seconds
+    AUTO_REFRESH_INTERVAL: 60000, // 60 seconds
+};
 
-  async callFunction(functionName, params = {}) {
-    try {
-      // For Google Apps Script Web Apps, we need to use a different approach
-      // because of CORS restrictions. We'll use Google's /dev endpoint
-      const url = `${this.baseUrl}?action=${functionName}`;
-      
-      const formData = new FormData();
-      Object.keys(params).forEach(key => {
-        formData.append(key, JSON.stringify(params[key]));
-      });
-      
-      const response = await fetch(url, {
-        method: 'POST',
-        body: formData
-      });
-      
-      // Parse response text as JSON
-      const text = await response.text();
-      return JSON.parse(text);
-      
-    } catch (error) {
-      console.error('API Error:', error);
-      throw new Error(`Failed to call ${functionName}: ${error.message}`);
-    }
-  }
+// Global state
+let APP_STATE = {
+    user: null,
+    token: null,
+    permissions: null,
+    currentSection: 'new'
+};
 
-  // Authentication
-  async authenticateUser(name) {
-    return this.callFunction('authenticateUser', { name });
-  }
-
-  // Application functions
-  async getNewApplications() {
-    return this.callFunction('getNewApplications');
-  }
-
-  async getPendingApplications() {
-    return this.callFunction('getPendingApplications');
-  }
-
-  async getPendingApprovalApplications() {
-    return this.callFunction('getPendingApprovalApplications');
-  }
-
-  async getApprovedApplications() {
-    return this.callFunction('getApprovedApplications');
-  }
-
-  async getApplicationDetails(appNumber, userName) {
-    return this.callFunction('getApplicationDetails', { appNumber, userName });
-  }
-
-  async saveProcessApplicationForm(appNumber, formData) {
-    return this.callFunction('saveProcessApplicationForm', { appNumber, formData });
-  }
-
-  async getNewApplicationContext() {
-    return this.callFunction('getNewApplicationContext');
-  }
-
-  async getAllApplicationCounts() {
-    return this.callFunction('getAllApplicationCounts');
-  }
-
-  async getApplicationsCountForUser(userName) {
-    return this.callFunction('getApplicationsCountForUser', { userName });
-  }
-
-  // User management
-  async getAllUsers() {
-    return this.callFunction('getAllUsers');
-  }
-
-  async addUser(userData) {
-    return this.callFunction('addUser', userData);
-  }
-
-  async deleteUser(userName) {
-    return this.callFunction('deleteUser', { userName });
-  }
-
-  // File operations
-  async uploadApplicationFile(fileObj, appNumber, appFolderId, docType) {
-    return this.callFunction('uploadApplicationFile', { 
-      fileObj, 
-      appNumber, 
-      appFolderId, 
-      docType 
-    });
-  }
+// Helper function to get config
+function getConfig() {
+    return GAS_CONFIG;
 }
 
-// Create global instance
-const gasAPI = new GASAPIClient(APP_CONFIG.API_BASE_URL);
+// Helper function to get state
+function getAppState() {
+    return APP_STATE;
+}
+
+// Update app state
+function updateAppState(key, value) {
+    APP_STATE[key] = value;
+    
+    // Persist to localStorage for certain keys
+    const persistKeys = ['user', 'permissions'];
+    if (persistKeys.includes(key)) {
+        localStorage.setItem(key, JSON.stringify(value));
+    }
+}
+
+// Load state from localStorage
+function loadAppState() {
+    const user = localStorage.getItem('user');
+    const permissions = localStorage.getItem('permissions');
+    
+    if (user) APP_STATE.user = JSON.parse(user);
+    if (permissions) APP_STATE.permissions = JSON.parse(permissions);
+}
+
+// Initialize state
+loadAppState();
