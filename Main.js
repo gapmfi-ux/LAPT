@@ -1,4 +1,4 @@
-// ===== GLOBAL VARIABLES =====
+// ----------- GLOBAL VARIABLES -----------
 const cachedElements = {};
 let currentAppNumber = "";
 let currentAppFolderId = "";
@@ -7,22 +7,38 @@ let notificationCheckInterval;
 let refreshInterval;
 let currentViewingAppData = null;
 
-// ===== LOADING OVERLAY MANAGEMENT =====
+// ----------- UTILITY FUNCTIONS -----------
 function showLoading() {
     const loading = document.getElementById('loading');
-    if (loading) {
-        loading.style.display = 'flex';
-        document.body.style.overflow = 'hidden';
+    if (!loading) {
+        console.warn('Loading element not found');
+        return;
     }
+    
+    // Create loading overlay if it doesn't exist
+    if (!document.body.contains(loading)) {
+        const loadingHTML = `
+            <div id="loading" class="loading-overlay">
+                <div class="spinner"></div>
+                <p>Loading...</p>
+            </div>
+        `;
+        document.body.insertAdjacentHTML('beforeend', loadingHTML);
+    }
+    
+    document.getElementById('loading').style.display = 'flex';
 }
 
 function hideLoading() {
     const loading = document.getElementById('loading');
     if (loading) {
         loading.style.display = 'none';
-        // Remove it from DOM to prevent it from showing again
-        loading.remove();
-        document.body.style.overflow = 'auto';
+        // Optional: remove from DOM after hiding
+        setTimeout(() => {
+            if (loading && loading.style.display === 'none') {
+                loading.remove();
+            }
+        }, 1000);
     }
 }
 
@@ -31,7 +47,7 @@ function forceHideAllLoadingOverlays() {
     const loadingElements = document.querySelectorAll('#loading, .loading-overlay');
     loadingElements.forEach(element => {
         element.style.display = 'none';
-        element.remove(); // Remove from DOM
+        element.remove();
     });
     
     // Ensure app container is visible
@@ -40,16 +56,15 @@ function forceHideAllLoadingOverlays() {
         appContainer.classList.remove('hidden');
         appContainer.style.display = 'block';
     }
-    
-    // Restore body scrolling
-    document.body.style.overflow = 'auto';
 }
 
-// ===== INITIALIZATION =====
+// ----------- INITIALIZATION -----------
 function initializeApp() {
     console.log('Loan Application Tracker initialized');
     
-    // Cache elements
+    // FORCE HIDE ANY LINGERING LOADING OVERLAY
+    forceHideAllLoadingOverlays();
+    
     cacheElements();
     
     // Set current date
@@ -59,41 +74,32 @@ function initializeApp() {
         });
     }
     
-    // Show dashboard immediately (no login required)
-    showDashboard();
+    // Check authentication
+    const loggedInName = localStorage.getItem('loggedInName');
+    if (!loggedInName) {
+        showLoginModal();
+    } else {
+        verifyUserOnLoad(loggedInName);
+    }
     
     // Initialize browser notifications
     initializeBrowserNotifications();
     
     // Setup event listeners
     setupEventListeners();
-    
-    // Update welcome stats
-    updateWelcomeStats();
 }
 
 function cacheElements() {
     const elements = {
+        'login-modal': 'login-modal',
         'logged-in-user': 'logged-in-user',
         'current-date': 'current-date',
         'loading': 'loading',
         'success-modal': 'success-modal',
         'success-message': 'success-message',
-        'error-modal': 'error-modal',
-        'error-message': 'error-message',
-        'confirmation-modal': 'confirmation-modal',
-        'confirmation-message': 'confirmation-message',
         'app-container': 'app-container',
         'main-content': 'main-content',
-        'user-notification-badge': 'user-notification-badge',
-        'new-count': 'new-count',
-        'pending-count': 'pending-count',
-        'pending-approvals-count': 'pending-approvals-count',
-        'approved-count': 'approved-count',
-        'welcome-new-count': 'welcome-new-count',
-        'welcome-pending-count': 'welcome-pending-count',
-        'welcome-pending-approvals-count': 'welcome-pending-approvals-count',
-        'welcome-approved-count': 'welcome-approved-count'
+        'user-notification-badge': 'user-notification-badge'
     };
     
     for (const [key, id] of Object.entries(elements)) {
@@ -102,15 +108,141 @@ function cacheElements() {
 }
 
 function setupEventListeners() {
-    // Setup any global event listeners here
+    // Login form
+    const loginForm = document.getElementById('login-form');
+    if (loginForm) {
+        loginForm.addEventListener('submit', handleLoginSubmit);
+    }
+    
+    // Add user form
+    const addUserForm = document.getElementById('add-user-form');
+    if (addUserForm) {
+        addUserForm.addEventListener('submit', handleAddUserSubmit);
+    }
 }
 
-// ===== DASHBOARD FUNCTIONS =====
+// ----------- AUTHENTICATION -----------
+function verifyUserOnLoad(loggedInName) {
+    showLoading();
+    
+    gasAPI.authenticateUser(loggedInName)
+        .then(function(authResult) {
+            hideLoading();
+            if (authResult.success) {
+                const userRole = localStorage.getItem('userRole');
+                setLoggedInUser(loggedInName, userRole);
+                hideLoginModal();
+                showDashboard();
+                initializeAndRefreshTables();
+                initializeAppCount();
+            } else {
+                localStorage.removeItem('loggedInName');
+                localStorage.removeItem('userRole');
+                localStorage.removeItem('userLevel');
+                showLoginModal();
+            }
+        })
+        .catch(function(error) {
+            hideLoading();
+            console.error('Authentication error:', error);
+            localStorage.removeItem('loggedInName');
+            localStorage.removeItem('userRole');
+            localStorage.removeItem('userLevel');
+            showLoginModal();
+        });
+}
+
+function handleLoginSubmit(e) {
+    e.preventDefault();
+    const name = document.getElementById('login-name').value.trim();
+    if (!name) {
+        alert('Name is required!');
+        return;
+    }
+    
+    showLoading();
+    
+    gasAPI.authenticateUser(name)
+        .then(function(authResult) {
+            hideLoading();
+            if (authResult.success) {
+                handleSuccessfulLogin(name, authResult.user);
+            } else {
+                handleFailedLogin(authResult.message);
+            }
+        })
+        .catch(function(error) {
+            hideLoading();
+            alert('Login error: ' + error.message);
+            document.getElementById('login-name').value = '';
+            document.getElementById('login-name').focus();
+        });
+}
+
+function handleSuccessfulLogin(name, user) {
+    localStorage.setItem('loggedInName', name);
+    localStorage.setItem('userRole', user.role);
+    localStorage.setItem('userLevel', user.level);
+    setLoggedInUser(name, user.role);
+    hideLoginModal();
+    showDashboard();
+    initializeAndRefreshTables();
+    initializeBrowserNotifications();
+    initializeAppCount();
+}
+
+function handleFailedLogin(message) {
+    alert(message || 'Authentication failed');
+    document.getElementById('login-name').value = '';
+    document.getElementById('login-name').focus();
+}
+
+function setLoggedInUser(name, role = '') {
+    const userElement = cachedElements['logged-in-user'];
+    if (userElement) {
+        userElement.textContent = role ? `${name} (${role})` : name;
+    }
+    updateUserNotificationBadge();
+}
+
+function showLoginModal() {
+    if (cachedElements['login-modal']) {
+        cachedElements['login-modal'].style.display = 'flex';
+    }
+    if (cachedElements['app-container']) {
+        cachedElements['app-container'].classList.add('hidden');
+    }
+}
+
+function hideLoginModal() {
+    if (cachedElements['login-modal']) {
+        cachedElements['login-modal'].style.display = 'none';
+    }
+}
+
+function logout() {
+    if (confirm('Are you sure you want to logout?')) {
+        localStorage.removeItem('loggedInName');
+        localStorage.removeItem('userRole');
+        localStorage.removeItem('userLevel');
+        clearIntervals();
+        showLoginModal();
+    }
+}
+
+function restrictIfNotLoggedIn() {
+    const loggedInName = localStorage.getItem('loggedInName');
+    if (!loggedInName) {
+        showLoginModal();
+        return true;
+    }
+    return false;
+}
+
+// ----------- DASHBOARD -----------
 function showDashboard() {
-    const appContainer = document.getElementById('app-container');
-    if (appContainer) {
-        appContainer.classList.remove('hidden');
-        appContainer.style.display = 'block';
+    if (cachedElements['app-container']) {
+        cachedElements['app-container'].classList.remove('hidden');
     }
     
     // Load default section
@@ -118,6 +250,8 @@ function showDashboard() {
 }
 
 async function showSection(sectionId) {
+    if (restrictIfNotLoggedIn()) return;
+    
     // Update active menu button
     document.querySelectorAll('.menu-btn').forEach(btn => btn.classList.remove('active'));
     const activeBtn = document.querySelector(`.menu-btn[onclick*="showSection('${sectionId}')"]`);
@@ -128,7 +262,7 @@ async function showSection(sectionId) {
 }
 
 async function loadSectionContent(sectionId) {
-    const mainContent = document.getElementById('main-content');
+    const mainContent = cachedElements['main-content'];
     if (!mainContent) return;
     
     showLoading();
@@ -220,137 +354,39 @@ async function loadJS(filePath) {
     });
 }
 
-// ===== WELCOME STATS =====
-async function updateWelcomeStats() {
-    try {
-        // Simulate API call - replace with actual API call
-        const counts = await getAllApplicationCounts();
-        
-        // Update welcome stats
-        const elements = {
-            'welcome-new-count': counts.new || 0,
-            'welcome-pending-count': counts.pending || 0,
-            'welcome-pending-approvals-count': counts.pendingApprovals || 0,
-            'welcome-approved-count': counts.approved || 0
-        };
-        
-        for (const [id, count] of Object.entries(elements)) {
-            const element = document.getElementById(id);
-            if (element) {
-                element.textContent = count;
-            }
-        }
-        
-        // Update sidebar badges
-        const badgeElements = {
-            'new-count': counts.new || 0,
-            'pending-count': counts.pending || 0,
-            'pending-approvals-count': counts.pendingApprovals || 0,
-            'approved-count': counts.approved || 0
-        };
-        
-        for (const [id, count] of Object.entries(badgeElements)) {
-            const element = document.getElementById(id);
-            if (element) {
-                element.textContent = count;
-                element.style.display = count > 0 ? 'inline-block' : 'none';
-            }
-        }
-        
-    } catch (error) {
-        console.error('Error updating stats:', error);
-    }
+// ----------- APPLICATION LOGIC -----------
+function startNewApplication() {
+    gasAPI.getNewApplicationContext()
+        .then(function(ctx) {
+            currentAppNumber = ctx.appNumber;
+            currentAppFolderId = ctx.folderId;
+        })
+        .catch(function(error) {
+            console.error('Error starting new application:', error);
+            alert('Error starting new application: ' + error.message);
+        });
 }
 
-// Simulated API function - replace with actual API
-async function getAllApplicationCounts() {
-    return new Promise((resolve) => {
-        setTimeout(() => {
-            resolve({
-                new: 5,
-                pending: 12,
-                pendingApprovals: 3,
-                approved: 25
-            });
-        }, 500);
-    });
-}
-
-// ===== MODAL FUNCTIONS =====
-function showSuccessModal(message) {
-    if (cachedElements['success-message']) {
-        cachedElements['success-message'].textContent = message;
-    }
-    if (cachedElements['success-modal']) {
-        cachedElements['success-modal'].style.display = 'flex';
-    }
-}
-
-function closeSuccessModal() {
-    if (cachedElements['success-modal']) {
-        cachedElements['success-modal'].style.display = 'none';
-    }
-}
-
-function showErrorModal(message) {
-    if (cachedElements['error-message']) {
-        cachedElements['error-message'].textContent = message;
-    }
-    if (cachedElements['error-modal']) {
-        cachedElements['error-modal'].style.display = 'flex';
-    }
-}
-
-function closeErrorModal() {
-    if (cachedElements['error-modal']) {
-        cachedElements['error-modal'].style.display = 'none';
-    }
-}
-
-function showConfirmationModal(message, callback) {
-    if (cachedElements['confirmation-message']) {
-        cachedElements['confirmation-message'].textContent = message;
-    }
-    if (cachedElements['confirmation-modal']) {
-        cachedElements['confirmation-modal'].style.display = 'flex';
-    }
-    // Store callback for confirmation
-    window.confirmationCallback = callback;
-}
-
-function closeConfirmationModal(confirmed) {
-    if (cachedElements['confirmation-modal']) {
-        cachedElements['confirmation-modal'].style.display = 'none';
+function downloadLendingTemplate() {
+    if (!currentAppNumber || !currentAppFolderId) {
+        alert("Application number/folder not set.");
+        return;
     }
     
-    if (window.confirmationCallback) {
-        window.confirmationCallback(confirmed);
-        window.confirmationCallback = null;
-    }
+    showLoading();
+    
+    gasAPI.copyLendingTemplate(currentAppNumber, currentAppFolderId)
+        .then(function(url) {
+            hideLoading();
+            window.open(url, '_blank');
+        })
+        .catch(function(error) {
+            hideLoading();
+            alert('Error downloading template: ' + error.message);
+        });
 }
 
-// ===== APPLICATION FUNCTIONS =====
-function showNewApplicationModal() {
-    alert('New Application Modal - This would open a modal for creating a new application');
-    // Implement modal opening logic here
-}
-
-function logout() {
-    if (confirm('Are you sure you want to logout?')) {
-        // Clear any stored data
-        localStorage.clear();
-        sessionStorage.clear();
-        
-        // Show success message
-        showSuccessModal('Logged out successfully!');
-        
-        // Reload page after a delay
-        setTimeout(() => {
-            window.location.reload();
-        }, 1500);
-    }
-}
-
+// ----------- TABLE FUNCTIONS -----------
 function updateBadgeCount(status, count) {
     const badgeElement = document.getElementById(status + '-count');
     if (badgeElement) {
@@ -360,7 +396,7 @@ function updateBadgeCount(status, count) {
 }
 
 function updateBadgeCounts() {
-    getAllApplicationCounts()
+    gasAPI.getAllApplicationCounts()
         .then(function(counts) {
             updateBadgeCount('new', counts.new);
             updateBadgeCount('pending', counts.pending);
@@ -372,19 +408,139 @@ function updateBadgeCounts() {
         });
 }
 
-// ===== NOTIFICATIONS =====
-function updateUserNotificationBadge() {
-    // Simulate getting notification count
-    const count = Math.floor(Math.random() * 10);
-    const badge = cachedElements['user-notification-badge'];
-    if (badge) {
-        if (count > 0) {
-            badge.textContent = count > 99 ? '99+' : count;
-            badge.style.display = 'flex';
-        } else {
-            badge.style.display = 'none';
+function refreshApplications() {
+    const activeSection = document.querySelector('.menu-btn.active');
+    if (activeSection) {
+        const onclickAttr = activeSection.getAttribute('onclick');
+        const match = onclickAttr.match(/showSection\('([^']+)'\)/);
+        if (match) {
+            showSection(match[1]);
         }
     }
+}
+
+function initializeAndRefreshTables() {
+    // Initial load
+    updateBadgeCounts();
+    updateUserNotificationBadge();
+    
+    // Set up auto-refresh
+    if (refreshInterval) clearInterval(refreshInterval);
+    refreshInterval = setInterval(function() {
+        updateBadgeCounts();
+        updateUserNotificationBadge();
+    }, 60000);
+}
+
+// ----------- APPLICATION CLICK HANDLER -----------
+function handleAppNumberClick(appNumber) {
+    if (!appNumber || appNumber === 'undefined' || appNumber === 'null') {
+        alert('Error: Invalid application number');
+        return;
+    }
+    
+    const userName = localStorage.getItem('loggedInName');
+    showLoading();
+    
+    gasAPI.getApplicationDetails(appNumber, userName)
+        .then(function(response) {
+            hideLoading();
+            if (response && response.success && response.data) {
+                const appData = response.data;
+                currentViewingAppData = appData;
+                
+                if (appData.status === 'NEW' && appData.completionStatus === 'DRAFT') {
+                    // Open in edit mode
+                    showNewApplicationModal(appNumber);
+                } else {
+                    // Open in view mode
+                    openViewApplicationModal(appData);
+                }
+            } else {
+                alert('Failed to load application: ' + (response?.message || 'Application not found'));
+            }
+        })
+        .catch(function(error) {
+            hideLoading();
+            if (error?.message?.includes('Application not found')) {
+                alert('Application not found: ' + appNumber + '. Please try refreshing the list.');
+            } else if (error?.message?.includes('not authorized')) {
+                alert('You are not authorized to view this application.');
+            } else {
+                alert('Error loading application details: ' + (error?.message || error));
+            }
+        });
+}
+
+// ----------- USER MANAGEMENT -----------
+function handleAddUserSubmit(e) {
+    e.preventDefault();
+    
+    const name = document.getElementById('new-user-name')?.value.trim();
+    const level = document.getElementById('new-user-level')?.value;
+    const role = document.getElementById('new-user-role')?.value;
+    
+    if (!name || !level || !role) {
+        alert('Please fill all fields!');
+        return;
+    }
+    
+    const userData = { name, level: parseInt(level), role };
+    
+    gasAPI.addUser(userData)
+        .then(function(res) {
+            showSuccessModal(res.message || 'User added!');
+            if (res.success) {
+                document.getElementById('add-user-form').reset();
+                showSection('users-list');
+            }
+        })
+        .catch(function(error) {
+            alert('Error adding user: ' + error.message);
+        });
+}
+
+function deleteUser(userName) {
+    if (!confirm('Are you sure you want to delete user: ' + userName + '?')) return;
+    
+    gasAPI.deleteUser(userName)
+        .then(function(res) {
+            showSuccessModal(res.message || 'User deleted!');
+            if (res.success) {
+                refreshUsersList();
+            }
+        })
+        .catch(function(error) {
+            alert('Error deleting user: ' + error.message);
+        });
+}
+
+function refreshUsersList() {
+    if (typeof window.refreshUsersList === 'function') {
+        window.refreshUsersList();
+    }
+}
+
+// ----------- NOTIFICATIONS -----------
+function updateUserNotificationBadge() {
+    const userName = localStorage.getItem('loggedInName');
+    if (!userName) return;
+    
+    gasAPI.getApplicationsCountForUser(userName)
+        .then(function(count) {
+            const badge = cachedElements['user-notification-badge'];
+            if (badge) {
+                if (count > 0) {
+                    badge.textContent = count > 99 ? '99+' : count;
+                    badge.style.display = 'flex';
+                } else {
+                    badge.style.display = 'none';
+                }
+            }
+        })
+        .catch(function(error) {
+            console.error('Error updating badge:', error);
+        });
 }
 
 function initializeBrowserNotifications() {
@@ -412,16 +568,22 @@ function setupNotificationListener() {
 }
 
 function checkForNewApplications() {
-    // Simulate checking for new applications
-    if (document.visibilityState !== 'visible') {
-        const userName = "Current User";
-        const userRole = "User";
-        const count = Math.floor(Math.random() * 3);
-        
-        if (count > 0) {
-            showApplicationNotification(userName, userRole, count);
-        }
-    }
+    const userName = localStorage.getItem('loggedInName');
+    if (!userName || document.visibilityState === 'visible') return;
+    
+    gasAPI.getApplicationsCountForUser(userName)
+        .then(function(currentCount) {
+            const previousCount = lastAppCount;
+            lastAppCount = currentCount;
+            if (currentCount > previousCount && previousCount > 0) {
+                const newCount = currentCount - previousCount;
+                const userRole = localStorage.getItem('userRole') || '';
+                showApplicationNotification(userName, userRole, newCount);
+            }
+        })
+        .catch(function(error) {
+            console.error('Error checking applications:', error);
+        });
 }
 
 function showApplicationNotification(userName, userRole, count) {
@@ -429,6 +591,7 @@ function showApplicationNotification(userName, userRole, count) {
         const notification = new Notification("New Application Assignment", {
             body: `${userName} have ${count} application(s) for your action${userRole ? ` as ${userRole}` : ''}`,
             icon: "https://img.icons8.com/color/192/000000/loan.png",
+            badge: "https://img.icons8.com/color/192/000000/loan.png",
             tag: "loan-application",
             requireInteraction: true
         });
@@ -443,88 +606,114 @@ function showApplicationNotification(userName, userRole, count) {
     }
 }
 
-function refreshApplications() {
-    const activeSection = document.querySelector('.menu-btn.active');
-    if (activeSection) {
-        const onclickAttr = activeSection.getAttribute('onclick');
-        const match = onclickAttr.match(/showSection\('([^']+)'\)/);
-        if (match) {
-            showSection(match[1]);
+function handleVisibilityChange() {
+    if (document.visibilityState === 'visible') {
+        refreshApplications();
+        updateUserNotificationBadge();
+    } else {
+        const userName = localStorage.getItem('loggedInName');
+        if (userName) {
+            gasAPI.getApplicationsCountForUser(userName)
+                .then(function(count) {
+                    lastAppCount = count;
+                })
+                .catch(console.error);
         }
     }
 }
 
-// ===== INITIALIZE ON LOAD =====
-document.addEventListener('DOMContentLoaded', function() {
-    console.log('DOM loaded, initializing application...');
-    
-    // Immediately hide the loading overlay BEFORE anything else
-    const loadingOverlay = document.getElementById('loading');
-    if (loadingOverlay) {
-        loadingOverlay.style.display = 'none';
-        loadingOverlay.remove(); // Remove from DOM to prevent it from showing again
+function initializeAppCount() {
+    const userName = localStorage.getItem('loggedInName');
+    if (userName) {
+        gasAPI.getApplicationsCountForUser(userName)
+            .then(function(count) {
+                lastAppCount = count;
+            })
+            .catch(console.error);
     }
-    
-    // Show the main app container
-    const appContainer = document.getElementById('app-container');
-    if (appContainer) {
-        appContainer.classList.remove('hidden');
-        appContainer.style.display = 'block';
-    }
-    
-    // Initialize application
-    setTimeout(() => {
-        initializeApp();
-    }, 100); // Small delay to ensure DOM is ready
-});
+}
 
-// Also hide loading when window fully loads (as backup)
-window.addEventListener('load', function() {
-    console.log('Window loaded, ensuring loading is hidden');
-    
-    // Final safety: remove any remaining loading overlays
-    const loadingElements = document.querySelectorAll('#loading, .loading-overlay');
-    loadingElements.forEach(element => {
-        element.style.display = 'none';
-        element.remove();
-    });
-    
-    // Ensure app container is visible
-    const appContainer = document.getElementById('app-container');
-    if (appContainer) {
-        appContainer.classList.remove('hidden');
-        appContainer.style.display = 'block';
+// ----------- MODAL FUNCTIONS -----------
+function showSuccessModal(message) {
+    if (cachedElements['success-message']) {
+        cachedElements['success-message'].textContent = message;
     }
-    
-    // Restore scrolling
-    document.body.style.overflow = 'auto';
-});
+    if (cachedElements['success-modal']) {
+        cachedElements['success-modal'].style.display = 'flex';
+    }
+}
 
+function closeSuccessModal() {
+    if (cachedElements['success-modal']) {
+        cachedElements['success-modal'].style.display = 'none';
+    }
+}
+
+function clearIntervals() {
+    if (notificationCheckInterval) clearInterval(notificationCheckInterval);
+    if (refreshInterval) clearInterval(refreshInterval);
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+const format = {
+    date: date => date ? new Date(date).toLocaleDateString('en-US', {year: 'numeric', month: 'short', day: 'numeric'}) : '',
+    currency: amount => {
+        if (amount === null || amount === undefined) return '0.00';
+        const num = parseFloat(amount);
+        return isNaN(num) ? '0.00' : num.toLocaleString('en-US', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        });
+    }
+};
+
+function showNewApplicationModal(appNumber = null) {
+    alert('New application modal would open here');
+    // You would load the new application modal HTML/JS here
+}
+
+function openViewApplicationModal(appData) {
+    alert('View application modal would open here');
+    // You would load the view application modal HTML/JS here
+}
+
+function closeViewApplicationModal() {
+    // Implementation for closing view modal
+}
+
+// ----------- SAFETY MEASURES -----------
 // Emergency timeout to ensure loading overlay disappears
 setTimeout(function() {
     const loading = document.getElementById('loading');
     if (loading && loading.style.display !== 'none') {
         console.warn('Emergency: Forcing loading overlay to hide');
-        loading.style.display = 'none';
-        loading.remove();
+        forceHideAllLoadingOverlays();
     }
-    
-    const appContainer = document.getElementById('app-container');
-    if (appContainer && appContainer.classList.contains('hidden')) {
-        appContainer.classList.remove('hidden');
-        appContainer.style.display = 'block';
-    }
-}, 3000); // 3 second emergency timeout
+}, 15000); // 15 second timeout as maximum
 
-// ===== MAKE FUNCTIONS GLOBALLY AVAILABLE =====
+// ----------- INITIALIZE ON LOAD -----------
+document.addEventListener('DOMContentLoaded', function() {
+    // Ensure loading is hidden before initialization
+    forceHideAllLoadingOverlays();
+    initializeApp();
+});
+
+// Make functions globally available
 window.showSection = showSection;
 window.refreshApplications = refreshApplications;
+window.refreshUsersList = refreshUsersList;
 window.logout = logout;
-window.showNewApplicationModal = showNewApplicationModal;
-window.showSuccessModal = showSuccessModal;
+window.handleAppNumberClick = handleAppNumberClick;
+window.deleteUser = deleteUser;
 window.closeSuccessModal = closeSuccessModal;
-window.showErrorModal = showErrorModal;
-window.closeErrorModal = closeErrorModal;
-window.showConfirmationModal = showConfirmationModal;
-window.closeConfirmationModal = closeConfirmationModal;
-window.updateWelcomeStats = updateWelcomeStats;
+window.showNewApplicationModal = showNewApplicationModal;
+window.closeViewApplicationModal = closeViewApplicationModal;
+window.format = format;
+window.escapeHtml = escapeHtml;
+window.showLoading = showLoading;
+window.hideLoading = hideLoading;
