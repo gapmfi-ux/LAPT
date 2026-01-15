@@ -1,135 +1,92 @@
-// Login.js
+// ===== LOGIN PAGE JAVASCRIPT =====
 document.addEventListener('DOMContentLoaded', function() {
-    initializeLoginPage();
-});
-
-function initializeLoginPage() {
-    const loginForm = document.getElementById('login-form');
-    const loginNameInput = document.getElementById('login-name');
+    console.log('Login page loaded');
     
-    if (loginNameInput) {
-        loginNameInput.focus();
-        
-        // Auto-select text on focus
-        loginNameInput.addEventListener('focus', function() {
-            this.select();
-        });
+    // Hide loading overlay immediately
+    const loadingOverlay = document.getElementById('loading');
+    if (loadingOverlay) {
+        loadingOverlay.style.display = 'none';
     }
     
+    // Focus on login input
+    const loginInput = document.getElementById('login-name');
+    if (loginInput) {
+        loginInput.focus();
+    }
+    
+    // Setup form submit handler
+    const loginForm = document.getElementById('login-form');
     if (loginForm) {
         loginForm.addEventListener('submit', handleLoginSubmit);
     }
-    
-    // Add demo users for testing (remove in production)
-    addDemoUsers();
-}
+});
 
 function handleLoginSubmit(e) {
     e.preventDefault();
     
-    const nameInput = document.getElementById('login-name');
-    const name = nameInput.value.trim();
-    
+    const name = document.getElementById('login-name').value.trim();
     if (!name) {
-        alert('Please enter your name');
+        showError('Name is required!');
         return;
     }
     
     // Show loading
-    showLoading('Authenticating...');
+    const loadingOverlay = document.getElementById('loading');
+    if (loadingOverlay) {
+        loadingOverlay.style.display = 'flex';
+    }
     
-    // Call API
-    gasAPI.authenticateUser(name)
-        .then(function(authResult) {
-            hideLoading();
-            
-            if (authResult.success) {
-                handleSuccessfulLogin(name, authResult.user);
-            } else {
-                handleFailedLogin(authResult.message);
-            }
-        })
-        .catch(function(error) {
-            hideLoading();
-            handleApiError(error);
-        });
+    // Simulate API call - replace with actual authentication
+    setTimeout(() => {
+        // Hide loading
+        if (loadingOverlay) {
+            loadingOverlay.style.display = 'none';
+        }
+        
+        // For demo purposes, always accept login
+        // In real app, you would check credentials here
+        handleSuccessfulLogin(name);
+        
+    }, 1000); // Simulate network delay
 }
 
-function handleSuccessfulLogin(name, user) {
-    // Save user information
+function handleSuccessfulLogin(name) {
+    // Store user info in localStorage
     localStorage.setItem('loggedInName', name);
-    localStorage.setItem('userRole', user.role);
-    localStorage.setItem('userLevel', user.level);
+    localStorage.setItem('userRole', 'User'); // Default role
+    localStorage.setItem('userLevel', '1'); // Default level
     
-    // Get initial application count
-    gasAPI.getApplicationsCountForUser(name)
-        .then(function(count) {
-            localStorage.setItem('lastAppCount', count.toString());
-        })
-        .catch(console.error);
-    
-    // Show success message
-    showSuccessModal('Login successful!');
-    
-    // Redirect to dashboard
-    setTimeout(function() {
-        window.location.href = 'index.html#dashboard';
-    }, 1000);
+    // Redirect to main application
+    window.location.href = 'index.html';
 }
 
 function handleFailedLogin(message) {
-    alert(message || 'Authentication failed. Please check your name and try again.');
+    showError(message || 'Authentication failed');
     
-    const nameInput = document.getElementById('login-name');
-    if (nameInput) {
-        nameInput.focus();
-        nameInput.select();
-    }
-}
-
-function handleApiError(error) {
-    alert('Connection error: ' + error.message + '\n\nPlease check your internet connection and try again.');
-}
-
-// Demo users for testing (remove in production)
-function addDemoUsers() {
-    const demoUsers = [
-        { name: 'Credit Officer', role: 'Credit Sales Officer' },
-        { name: 'Credit Analyst', role: 'Credit Analyst' },
-        { name: 'AMLRO', role: 'AMLRO' },
-        { name: 'Head of Credit', role: 'Head of Credit' },
-        { name: 'Branch Manager', role: 'Branch Manager/Approver' },
-        { name: 'Approver', role: 'Approver' },
-        { name: 'Admin', role: 'Admin' }
-    ];
-    
-    const form = document.getElementById('login-form');
-    if (form) {
-        const demoSection = document.createElement('div');
-        demoSection.className = 'demo-users';
-        demoSection.innerHTML = `
-            <h3>Demo Users (Click to Login)</h3>
-            <div class="demo-user-list">
-                ${demoUsers.map(user => `
-                    <div class="demo-user" onclick="fillDemoLogin('${user.name}')">
-                        ${user.name}
-                    </div>
-                `).join('')}
-            </div>
-        `;
-        
-        form.parentNode.insertBefore(demoSection, form.nextSibling);
-    }
-}
-
-function fillDemoLogin(userName) {
+    // Clear input and refocus
     const loginInput = document.getElementById('login-name');
     if (loginInput) {
-        loginInput.value = userName;
+        loginInput.value = '';
         loginInput.focus();
-        loginInput.select();
     }
 }
 
-// Make functions available globally
-window.fillDemoLogin = fillDemoLogin;
+function showError(message) {
+    const errorMessage = document.getElementById('error-message');
+    const errorModal = document.getElementById('error-modal');
+    
+    if (errorMessage && errorModal) {
+        errorMessage.textContent = message;
+        errorModal.style.display = 'flex';
+    }
+}
+
+function closeErrorModal() {
+    const errorModal = document.getElementById('error-modal');
+    if (errorModal) {
+        errorModal.style.display = 'none';
+    }
+}
+
+// Make function globally available
+window.closeErrorModal = closeErrorModal;
