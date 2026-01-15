@@ -11,12 +11,19 @@
   
   <!-- CSS Files -->
   <link rel="stylesheet" href="Main.css">
-  <link rel="stylesheet" href="applications/AppsTables.css">
-  <link rel="stylesheet" href="user-management/UserMgt.css">
-  <link rel="stylesheet" href="login/Login.css">
+  
+  <!-- PWA Manifest (optional) -->
+  <link rel="manifest" href="manifest.json">
+  
+  <!-- Favicon -->
+  <link rel="icon" href="https://img.icons8.com/color/96/000000/loan.png" type="image/png">
 </head>
 <body>
-
+  <!-- Loading Overlay -->
+  <div id="loading" class="loading-overlay">
+    <div class="spinner"></div>
+    <p>Loading...</p>
+  </div>
 
   <!-- Login Modal -->
   <div id="login-modal" class="modal-overlay">
@@ -40,6 +47,27 @@
       <i class="fas fa-check-circle success-icon"></i>
       <div id="success-message"></div>
       <button onclick="closeSuccessModal()" class="btn-primary">OK</button>
+    </div>
+  </div>
+
+  <!-- Error Modal -->
+  <div id="error-modal" class="modal-overlay">
+    <div class="modal-message">
+      <i class="fas fa-exclamation-circle error-icon"></i>
+      <div id="error-message"></div>
+      <button onclick="closeErrorModal()" class="btn-primary">OK</button>
+    </div>
+  </div>
+
+  <!-- Confirmation Modal -->
+  <div id="confirmation-modal" class="modal-overlay">
+    <div class="modal-message">
+      <i class="fas fa-question-circle confirmation-icon"></i>
+      <div id="confirmation-message"></div>
+      <div class="modal-actions">
+        <button onclick="closeConfirmationModal(false)" class="btn-secondary">Cancel</button>
+        <button onclick="closeConfirmationModal(true)" class="btn-primary">Confirm</button>
+      </div>
     </div>
   </div>
 
@@ -98,31 +126,336 @@
       
       <!-- Main Content Area -->
       <div class="main-content" id="main-content">
-        <!-- Content loads dynamically here -->
+        <!-- Content will be loaded dynamically here -->
+        <div class="welcome-message">
+          <div class="welcome-card">
+            <i class="fas fa-layer-group welcome-icon"></i>
+            <h1>Welcome to Loan Application Tracker</h1>
+            <p>Select a section from the menu to get started</p>
+            <div class="welcome-stats">
+              <div class="stat-card">
+                <i class="fas fa-file-alt stat-icon"></i>
+                <div class="stat-number" id="welcome-new-count">0</div>
+                <div class="stat-label">New Applications</div>
+              </div>
+              <div class="stat-card">
+                <i class="fas fa-clock stat-icon"></i>
+                <div class="stat-number" id="welcome-pending-count">0</div>
+                <div class="stat-label">Pending</div>
+              </div>
+              <div class="stat-card">
+                <i class="fas fa-hourglass-half stat-icon"></i>
+                <div class="stat-number" id="welcome-pending-approvals-count">0</div>
+                <div class="stat-label">Pending Approvals</div>
+              </div>
+              <div class="stat-card">
+                <i class="fas fa-check-circle stat-icon"></i>
+                <div class="stat-number" id="welcome-approved-count">0</div>
+                <div class="stat-label">Approved</div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- Shared Scripts -->
+  <!-- Scripts -->
+  <!-- Configuration and API -->
   <script src="shared/config.js"></script>
   <script src="shared/api-client.js"></script>
+  
+  <!-- Workflow and Access Control -->
   <script src="workflow/AccessStage.js"></script>
   
-  <!-- Main App Script -->
+  <!-- Modal Management -->
+  <script>
+    // Modal functions
+    let confirmationCallback = null;
+
+    function showSuccessModal(message) {
+      const modal = document.getElementById('success-modal');
+      const messageElement = document.getElementById('success-message');
+      
+      if (modal && messageElement) {
+        messageElement.textContent = message;
+        modal.style.display = 'flex';
+      }
+    }
+
+    function closeSuccessModal() {
+      const modal = document.getElementById('success-modal');
+      if (modal) {
+        modal.style.display = 'none';
+      }
+    }
+
+    function showErrorModal(message) {
+      const modal = document.getElementById('error-modal');
+      const messageElement = document.getElementById('error-message');
+      
+      if (modal && messageElement) {
+        messageElement.textContent = message;
+        modal.style.display = 'flex';
+      }
+    }
+
+    function closeErrorModal() {
+      const modal = document.getElementById('error-modal');
+      if (modal) {
+        modal.style.display = 'none';
+      }
+    }
+
+    function showConfirmationModal(message, callback) {
+      const modal = document.getElementById('confirmation-modal');
+      const messageElement = document.getElementById('confirmation-message');
+      
+      if (modal && messageElement) {
+        messageElement.textContent = message;
+        confirmationCallback = callback;
+        modal.style.display = 'flex';
+      }
+    }
+
+    function closeConfirmationModal(confirmed) {
+      const modal = document.getElementById('confirmation-modal');
+      if (modal) {
+        modal.style.display = 'none';
+      }
+      
+      if (confirmationCallback) {
+        confirmationCallback(confirmed);
+        confirmationCallback = null;
+      }
+    }
+
+    // Make modal functions global
+    window.showSuccessModal = showSuccessModal;
+    window.closeSuccessModal = closeSuccessModal;
+    window.showErrorModal = showErrorModal;
+    window.closeErrorModal = closeErrorModal;
+    window.showConfirmationModal = showConfirmationModal;
+    window.closeConfirmationModal = closeConfirmationModal;
+  </script>
+  
+  <!-- Main Application Logic -->
   <script src="Main.js"></script>
+  
+  <!-- Service Worker Registration -->
+  <script>
+    // Register Service Worker for PWA
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function() {
+        navigator.serviceWorker.register('sw.js')
+          .then(function(registration) {
+            console.log('ServiceWorker registration successful with scope: ', registration.scope);
+          })
+          .catch(function(error) {
+            console.log('ServiceWorker registration failed: ', error);
+          });
+      });
+    }
+    
+    // Initialize the application when DOM is loaded
+    document.addEventListener('DOMContentLoaded', function() {
+      console.log('DOM loaded, initializing application...');
+      
+      // Hide loading overlay immediately
+      const loadingOverlay = document.getElementById('loading');
+      if (loadingOverlay) {
+        loadingOverlay.style.display = 'none';
+      }
+      
+      // Show main app container
+      const appContainer = document.getElementById('app-container');
+      if (appContainer) {
+        appContainer.classList.remove('hidden');
+      }
+      
+      // Initialize application
+      if (typeof initializeApp === 'function') {
+        initializeApp();
+      }
+      
+      // Set current date
+      const dateElement = document.getElementById('current-date');
+      if (dateElement) {
+        dateElement.textContent = new Date().toLocaleDateString('en-US', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        });
+      }
+      
+      // Setup welcome stats
+      updateWelcomeStats();
+    });
+    
+    // Function to update welcome stats
+    async function updateWelcomeStats() {
+      try {
+        const counts = await gasAPI.getAllApplicationCounts();
+        
+        // Update welcome stats
+        const elements = {
+          'welcome-new-count': counts.new || 0,
+          'welcome-pending-count': counts.pending || 0,
+          'welcome-pending-approvals-count': counts.pendingApprovals || 0,
+          'welcome-approved-count': counts.approved || 0
+        };
+        
+        for (const [id, count] of Object.entries(elements)) {
+          const element = document.getElementById(id);
+          if (element) {
+            element.textContent = count;
+          }
+        }
+        
+        // Update sidebar badges
+        const badgeElements = {
+          'new-count': counts.new || 0,
+          'pending-count': counts.pending || 0,
+          'pending-approvals-count': counts.pendingApprovals || 0,
+          'approved-count': counts.approved || 0
+        };
+        
+        for (const [id, count] of Object.entries(badgeElements)) {
+          const element = document.getElementById(id);
+          if (element) {
+            element.textContent = count;
+            element.style.display = count > 0 ? 'inline-block' : 'none';
+          }
+        }
+        
+      } catch (error) {
+        console.error('Error updating stats:', error);
+      }
+    }
+    
+    // Make functions global
+    window.updateWelcomeStats = updateWelcomeStats;
+  </script>
+  
+  <!-- Additional CSS for modals and welcome message -->
+  <style>
+    .error-icon {
+      font-size: 3rem;
+      color: #ef4444;
+      margin-bottom: 1rem;
+    }
+    
+    .confirmation-icon {
+      font-size: 3rem;
+      color: #f59e0b;
+      margin-bottom: 1rem;
+    }
+    
+    .modal-actions {
+      display: flex;
+      gap: 0.5rem;
+      justify-content: center;
+      margin-top: 1.5rem;
+    }
+    
+    .welcome-message {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 500px;
+      padding: 2rem;
+    }
+    
+    .welcome-card {
+      text-align: center;
+      max-width: 800px;
+      padding: 3rem;
+      background: white;
+      border-radius: 1rem;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+    }
+    
+    .welcome-icon {
+      font-size: 4rem;
+      color: #2563eb;
+      margin-bottom: 1.5rem;
+    }
+    
+    .welcome-card h1 {
+      color: #1e293b;
+      margin-bottom: 0.5rem;
+      font-size: 2rem;
+    }
+    
+    .welcome-card p {
+      color: #64748b;
+      margin-bottom: 2rem;
+      font-size: 1.1rem;
+    }
+    
+    .welcome-stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 1.5rem;
+      margin-top: 2rem;
+    }
+    
+    .stat-card {
+      padding: 1.5rem;
+      background: #f8fafc;
+      border-radius: 0.75rem;
+      border: 1px solid #e2e8f0;
+      transition: transform 0.2s;
+    }
+    
+    .stat-card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+    }
+    
+    .stat-icon {
+      font-size: 2rem;
+      color: #3b82f6;
+      margin-bottom: 0.75rem;
+    }
+    
+    .stat-number {
+      font-size: 2rem;
+      font-weight: 700;
+      color: #1e293b;
+      margin-bottom: 0.25rem;
+    }
+    
+    .stat-label {
+      font-size: 0.875rem;
+      color: #64748b;
+      font-weight: 500;
+    }
+    
+    @media (max-width: 768px) {
+      .welcome-stats {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      
+      .welcome-card {
+        padding: 1.5rem;
+      }
+      
+      .welcome-icon {
+        font-size: 3rem;
+      }
+      
+      .welcome-card h1 {
+        font-size: 1.5rem;
+      }
+    }
+    
+    @media (max-width: 480px) {
+      .welcome-stats {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
 </body>
 </html>
-<script>
-  // Register Service Worker
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', function() {
-      navigator.serviceWorker.register('/LAPT/sw.js')
-        .then(function(registration) {
-          console.log('ServiceWorker registration successful: ', registration.scope);
-        })
-        .catch(function(err) {
-          console.log('ServiceWorker registration failed: ', err);
-        });
-    });
-  }
-</script>
