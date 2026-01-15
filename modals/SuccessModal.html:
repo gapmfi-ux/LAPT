@@ -1,0 +1,7 @@
+<div id="success-modal" class="modal-overlay">
+    <div class="modal-message">
+        <i class="fas fa-check-circle success-icon"></i>
+        <div id="success-message">Operation completed successfully!</div>
+        <button onclick="closeSuccessModal()" class="btn-primary">OK</button>
+    </div>
+</div>
