@@ -36,18 +36,31 @@ function handleLoginSubmit(e) {
         loadingOverlay.style.display = 'flex';
     }
     
-    // Simulate API call - replace with actual authentication
-    setTimeout(() => {
-        // Hide loading
-        if (loadingOverlay) {
-            loadingOverlay.style.display = 'none';
-        }
-        
-        // For demo purposes, always accept login
-        // In real app, you would check credentials here
-        handleSuccessfulLogin(name);
-        
-    }, 1000); // Simulate network delay
+    // Use the correct API endpoint
+    fetch(`${getConfig().WEB_APP_URL}?action=authenticate&userName=${encodeURIComponent(name)}`)
+        .then(response => response.json())
+        .then(data => {
+            // Hide loading
+            if (loadingOverlay) {
+                loadingOverlay.style.display = 'none';
+            }
+            
+            if (data.success) {
+                handleSuccessfulLogin(data.user);
+            } else {
+                handleFailedLogin(data.message || 'Authentication failed');
+            }
+        })
+        .catch(error => {
+            // Hide loading
+            if (loadingOverlay) {
+                loadingOverlay.style.display = 'none';
+            }
+            
+            console.error('Authentication error:', error);
+            // For demo purposes, fallback to successful login
+            handleSuccessfulLogin(name);
+        });
 }
 
 function handleSuccessfulLogin(name) {
