@@ -1,129 +1,163 @@
-// ===== LOGIN PAGE JAVASCRIPT =====
-document.addEventListener('DOMContentLoaded', function() {
+// ===== DOM READY =====
+document.addEventListener('DOMContentLoaded', async function() {
     console.log('Login page loaded');
     
     // Hide loading overlay
-    const loadingOverlay = document.getElementById('loading');
-    if (loadingOverlay) {
-        loadingOverlay.style.display = 'none';
-    }
+    hideLoading();
     
-    // Focus on login input
-    const loginInput = document.getElementById('login-name');
-    if (loginInput) {
-        loginInput.focus();
-    }
-    
-    // Setup form submit handler
-    const loginForm = document.getElementById('login-form');
-    if (loginForm) {
-        loginForm.addEventListener('submit', handleLoginSubmit);
-    }
-});
-
-async function handleLoginSubmit(e) {
-    e.preventDefault();
-    
-    const name = document.getElementById('login-name').value.trim();
-    if (!name) {
-        showError('Name is required!');
+    // Check if already logged in
+    if (window.APP_STATE?.user) {
+        redirectToDashboard();
         return;
     }
     
-    // Show loading
-    const loadingOverlay = document.getElementById('loading');
-    if (loadingOverlay) {
-        loadingOverlay.style.display = 'flex';
+    // Initialize API
+    await initializeLoginAPI();
+    
+    // Setup form submission
+    const loginForm = document.getElementById('login-form');
+    const loginInput = document.getElementById('login-name');
+    
+    if (loginForm && loginInput) {
+        loginForm.addEventListener('submit', handleLoginSubmit);
+        
+        // Focus on input
+        setTimeout(() => {
+            loginInput.focus();
+        }, 100);
     }
     
+    // Check for existing session
+    checkExistingSession();
+});
+
+// ===== API INITIALIZATION =====
+async function initializeLoginAPI() {
     try {
-        console.log('Attempting to authenticate:', name);
-        
-        // First test the connection
-        const testResult = await window.gasAPI.getAllApplicationCounts();
-        console.log('Connection test successful:', testResult);
-        
-        // Now try authentication
-        const authResult = await window.gasAPI.authenticateUser(name);
-        console.log('Auth result:', authResult);
-        
-        if (authResult.success) {
-            handleSuccessfulLogin(authResult.user);
-        } else {
-            handleFailedLogin(authResult.message || 'Authentication failed');
-        }
-        
+        // Load only required API modules
+        await ApiLoader.loadWithDependencies(['api-auth']);
+        console.log('Login API modules loaded');
     } catch (error) {
-        console.error('Login error:', error);
-        
-        // For now, use demo login since API might not be fully set up
-        console.log('Using demo login as fallback');
-        handleSuccessfulLogin({
-            name: name,
-            role: 'Admin',
-            level: 10
-        });
-        
-    } finally {
-        // Hide loading
-        if (loadingOverlay) {
-            loadingOverlay.style.display = 'none';
-        }
+        console.error('Failed to load login API:', error);
+        showLoginError('Failed to load authentication system. Please refresh the page.');
     }
-}
-// Simple JSONP login function (fallback)
-function simpleJsonpLogin(userName) {
-  return new Promise((resolve, reject) => {
-    const callbackName = 'login_callback_' + Math.round(100000 * Math.random());
-    const script = document.createElement('script');
-    
-    const url = `https://script.google.com/macros/s/AKfycbylE1YhW-h5CddXCSCDdfj2co-JYOg8PdBm5ZAj49DqLUOId1bYeoBZGRruQcFuNzaMZg/exec?action=authenticate&userName=${encodeURIComponent(userName)}&callback=${callbackName}`;
-    
-    window[callbackName] = function(response) {
-      delete window[callbackName];
-      document.body.removeChild(script);
-      resolve(response);
-    };
-    
-    script.onerror = function() {
-      delete window[callbackName];
-      document.body.removeChild(script);
-      reject(new Error('Network error'));
-    };
-    
-    script.src = url;
-    document.body.appendChild(script);
-  });
 }
 
-function handleSuccessfulLogin(userData) {
-    // Store user info
-    localStorage.setItem('loggedInName', userData.name || userData);
-    localStorage.setItem('userRole', userData.role || 'User');
-    localStorage.setItem('userLevel', userData.level || '1');
+// ===== LOGIN FUNCTIONS =====
+async function handleLoginSubmit(event) {
+    event.preventDefault();
     
-    if (typeof userData === 'object') {
-        localStorage.setItem('user', JSON.stringify(userData));
+    const userNameInput = document.getElementById('login-name');
+    const userName = userNameInput.value.trim();
+    
+    if (!userName) {
+        showLoginError('Please enter your name');
+        userNameInput.focus();
+        return;
     }
     
-    // Redirect to main app
+    showLoading('Authenticating...');
+    
+    try {
+        // Use authAPI for login
+        if (window.authAPI && window.authAPI.login) {
+            const result = await window.authAPI.login(userName);
+            
+            if (result.success) {
+                // Store user info in localStorage for backward compatibility
+                localStorage.setItem('loggedInName', result.user.fullName);
+                localStorage.setItem('userRole', result.user.role);
+                localStorage.setItem('userName', result.user.userName);
+                
+                // Show success message
+                showLoginSuccess(`Welcome back, ${result.user.fullName}!`);
+                
+                // Redirect to dashboard after delay
+                setTimeout(() => {
+                    redirectToDashboard();
+                }, 1500);
+            } else {
+                hideLoading();
+                showLoginError(result.message || 'Authentication failed');
+            }
+        } else {
+            // Fallback to direct API call
+            const result = await handleLegacyLogin(userName);
+            if (result.success) {
+                setTimeout(() => {
+                    redirectToDashboard();
+                }, 1500);
+            } else {
+                hideLoading();
+                showLoginError(result.message);
+            }
+        }
+    } catch (error) {
+        hideLoading();
+        console.error('Login error:', error);
+        showLoginError(`Login failed: ${error.message}`);
+    }
+}
+
+async function handleLegacyLogin(userName) {
+    try {
+        if (!window.gasAPI) {
+            throw new Error('API not available');
+        }
+        
+        // Authenticate user
+        const authResult = await window.gasAPI.authenticateUser(userName);
+        
+        if (authResult.success) {
+            const user = authResult.user;
+            
+            // Get permissions
+            const permResult = await window.gasAPI.getUserPermissions(user.userName);
+            const permissions = permResult.success ? permResult.data : {};
+            
+            // Update app state
+            updateAppState('user', user);
+            updateAppState('permissions', permissions);
+            
+            // Store in localStorage for backward compatibility
+            localStorage.setItem('loggedInName', user.fullName);
+            localStorage.setItem('userRole', user.role);
+            localStorage.setItem('userName', user.userName);
+            
+            showLoginSuccess(`Welcome back, ${user.fullName}!`);
+            return { success: true, user };
+        } else {
+            return { success: false, message: authResult.message || 'Authentication failed' };
+        }
+    } catch (error) {
+        return { success: false, message: error.message };
+    }
+}
+
+function checkExistingSession() {
+    const loggedInName = localStorage.getItem('loggedInName');
+    if (loggedInName) {
+        const loginInput = document.getElementById('login-name');
+        if (loginInput) {
+            loginInput.value = loggedInName;
+        }
+    }
+}
+
+function redirectToDashboard() {
     window.location.href = 'index.html';
 }
 
-function handleFailedLogin(message) {
-    showError(message || 'Authentication failed');
-    const loginInput = document.getElementById('login-name');
-    if (loginInput) {
-        loginInput.value = '';
-        loginInput.focus();
-    }
-}
-
-function showError(message) {
-    const errorMessage = document.getElementById('error-message');
+// ===== UI FUNCTIONS =====
+function showLoginError(message) {
     const errorModal = document.getElementById('error-modal');
-    if (errorMessage && errorModal) {
+    const errorMessage = document.getElementById('error-message');
+    
+    if (errorMessage) {
         errorMessage.textContent = message;
+    }
+    
+    if (errorModal) {
         errorModal.style.display = 'flex';
     }
 }
@@ -135,4 +169,42 @@ function closeErrorModal() {
     }
 }
 
+function showLoginSuccess(message) {
+    // Show success message in the login form
+    const loginHeader = document.querySelector('.login-header p');
+    if (loginHeader) {
+        const originalText = loginHeader.textContent;
+        loginHeader.textContent = message;
+        loginHeader.style.color = '#10b981';
+        loginHeader.style.fontWeight = 'bold';
+        
+        setTimeout(() => {
+            loginHeader.textContent = originalText;
+            loginHeader.style.color = '';
+            loginHeader.style.fontWeight = '';
+        }, 1500);
+    }
+}
+
+function showLoading(message) {
+    const loading = document.getElementById('loading');
+    if (loading) {
+        const p = loading.querySelector('p');
+        if (p) p.textContent = message;
+        loading.style.display = 'flex';
+        document.body.style.overflow = 'hidden';
+    }
+}
+
+function hideLoading() {
+    const loading = document.getElementById('loading');
+    if (loading) {
+        loading.style.display = 'none';
+        document.body.style.overflow = 'auto';
+    }
+}
+
+// ===== MAKE FUNCTIONS GLOBALLY AVAILABLE =====
 window.closeErrorModal = closeErrorModal;
+window.showLoading = showLoading;
+window.hideLoading = hideLoading;
