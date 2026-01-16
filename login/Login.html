@@ -60,21 +60,9 @@
     </div>
   </div>
 
-<!-- API Scripts - Load in correct order -->
-<script src="../api/api-core.js"></script>
-<script src="../api/api-auth.js"></script>
-<!-- Login JavaScript -->
-<script src="Login.js"></script>
+  <!-- Scripts - Load in correct order -->
+  <script src="../shared/api-client.js"></script>
+  <!-- Login JavaScript -->
+  <script src="Login.js"></script>
 </body>
 </html>
-<script>
-// Debug info
-console.log('=== DEBUG: Login Page Loaded ===');
-console.log('Window location:', window.location.href);
-console.log('API status:', {
-    authAPI: !!window.authAPI,
-    gasAPI: !!window.gasAPI,
-    makeJsonpRequest: !!window.makeJsonpRequest,
-    APP_STATE: window.APP_STATE
-});
-</script>
