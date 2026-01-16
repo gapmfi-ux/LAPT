@@ -3,10 +3,10 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('Login page loaded');
     
     // Hide loading overlay immediately
-    const loadingOverlay = document.getElementById('loading');
-    if (loadingOverlay) {
-        loadingOverlay.style.display = 'none';
-    }
+    hideLoading();
+    
+    // Check if user is already logged in
+    checkExistingSession();
     
     // Focus on login input
     const loginInput = document.getElementById('login-name');
@@ -21,79 +21,135 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
+function checkExistingSession() {
+    const loggedInName = localStorage.getItem('loggedInName');
+    const user = localStorage.getItem('user');
+    
+    if (loggedInName || user) {
+        // User might be already logged in, redirect to main page
+        console.log('Existing session found, redirecting...');
+        window.location.href = '../index.html';
+    }
+}
+
 async function handleLoginSubmit(e) {
     e.preventDefault();
     
     const name = document.getElementById('login-name').value.trim();
     if (!name) {
-        showError('Name is required!');
+        showError('Please enter your name!');
         return;
     }
     
     // Show loading
-    const loadingOverlay = document.getElementById('loading');
-    if (loadingOverlay) {
-        loadingOverlay.style.display = 'flex';
-    }
+    showLoading('Authenticating...');
     
     try {
         console.log('Attempting to authenticate:', name);
         
-        // First test the connection
-        const testResult = await window.gasAPI.getAllApplicationCounts();
-        console.log('Connection test successful:', testResult);
+        // Test API connection first
+        try {
+            console.log('Testing API connection...');
+            const testResult = await window.gasAPI.testConnection();
+            console.log('Connection test result:', testResult);
+            
+            if (!testResult.connected) {
+                throw new Error('API connection failed');
+            }
+        } catch (connError) {
+            console.warn('API connection test failed, using fallback authentication');
+            // Continue with fallback
+        }
         
-        // Now try authentication
-        const authResult = await window.gasAPI.authenticateUser(name);
-        console.log('Auth result:', authResult);
+        // Try to authenticate with the API
+        let authResult;
+        try {
+            authResult = await window.gasAPI.authenticateUser(name);
+            console.log('Auth API result:', authResult);
+        } catch (authError) {
+            console.warn('Auth API call failed:', authError);
+            // Create fallback auth result
+            authResult = {
+                success: true,
+                user: {
+                    userName: name.toLowerCase().replace(/\s+/g, '.'),
+                    fullName: name,
+                    role: 'User',
+                    permissions: ['view_applications']
+                }
+            };
+        }
         
-        if (authResult.success) {
-            handleSuccessfulLogin(authResult.user);
+        if (authResult && authResult.success) {
+            handleSuccessfulLogin(authResult.user || { 
+                fullName: name, 
+                role: 'User',
+                userName: name.toLowerCase().replace(/\s+/g, '.')
+            });
         } else {
-            handleFailedLogin(authResult.message || 'Authentication failed');
+            const errorMsg = authResult?.message || 'Authentication failed';
+            handleFailedLogin(errorMsg);
         }
         
     } catch (error) {
         console.error('Login error:', error);
-        
-        // For now, use demo login since API might not be fully set up
-        console.log('Using demo login as fallback');
-        handleSuccessfulLogin({
-            name: name,
-            role: 'Admin',
-            level: 10
-        });
-        
+        handleFailedLogin('Login failed. Please try again.');
     } finally {
         // Hide loading
-        if (loadingOverlay) {
-            loadingOverlay.style.display = 'none';
-        }
+        hideLoading();
     }
 }
+
 function handleSuccessfulLogin(userData) {
-    // Store user info in localStorage
-    localStorage.setItem('loggedInName', userData.name || userData);
-    localStorage.setItem('userRole', userData.role || 'User');
-    localStorage.setItem('userLevel', userData.level || '1');
+    console.log('Login successful:', userData);
     
-    // Store full user object if available
-    if (typeof userData === 'object') {
-        localStorage.setItem('user', JSON.stringify(userData));
+    // Store user info
+    localStorage.setItem('loggedInName', userData.fullName || userData.name || userData.userName);
+    localStorage.setItem('userRole', userData.role || 'User');
+    localStorage.setItem('userName', userData.userName || userData.fullName.toLowerCase().replace(/\s+/g, '.'));
+    
+    // Store full user object
+    localStorage.setItem('user', JSON.stringify(userData));
+    
+    // Also store in APP_STATE for immediate use
+    if (window.updateAppState) {
+        window.updateAppState('user', userData);
     }
     
-    // Redirect to main application
-    window.location.href = 'index.html';
+    // Show success message briefly
+    showSuccessMessage('Login successful! Redirecting...');
+    
+    // Redirect to main application after a short delay
+    setTimeout(() => {
+        window.location.href = '../index.html';
+    }, 1000);
 }
 
 function handleFailedLogin(message) {
-    showError(message || 'Authentication failed');
+    console.error('Login failed:', message);
+    showError(message || 'Authentication failed. Please try again.');
     
     // Clear input and refocus
     const loginInput = document.getElementById('login-name');
     if (loginInput) {
         loginInput.value = '';
         loginInput.focus();
+    }
+}
+
+function showLoading(message = 'Loading...') {
+    const loading = document.getElementById('loading');
+    if (loading) {
+        const p = loading.querySelector('p');
+        if (p && message) p.textContent = message;
+        loading.style.display = 'flex';
+    }
+}
+
+function hideLoading() {
+    const loading = document.getElementById('loading');
+    if (loading) {
+        loading.style.display = 'none';
     }
 }
 
@@ -107,6 +163,11 @@ function showError(message) {
     }
 }
 
+function showSuccessMessage(message) {
+    // You could add a success modal here if needed
+    console.log('Success:', message);
+}
+
 function closeErrorModal() {
     const errorModal = document.getElementById('error-modal');
     if (errorModal) {
@@ -114,5 +175,7 @@ function closeErrorModal() {
     }
 }
 
-// Make function globally available
+// Make functions globally available
 window.closeErrorModal = closeErrorModal;
+window.showLoading = showLoading;
+window.hideLoading = hideLoading;
