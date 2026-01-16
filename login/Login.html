@@ -68,24 +68,13 @@
 </body>
 </html>
 <script>
-console.log('=== DEBUG: Current path info ===');
-console.log('Window location:', window.location.pathname);
-console.log('Document base:', document.baseURI);
-
-// Test if file exists
-function testFile(url) {
-  return fetch(url, { method: 'HEAD' })
-    .then(res => ({ url, exists: res.ok }))
-    .catch(() => ({ url, exists: false }));
-}
-
-// Test important files
-Promise.all([
-  testFile('../api/api-loader.js'),
-  testFile('../api/api-core.js'),
-  testFile('../api/api-auth.js'),
-  testFile('Login.js')
-]).then(results => {
-  console.log('File check results:', results);
+// Debug info
+console.log('=== DEBUG: Login Page Loaded ===');
+console.log('Window location:', window.location.href);
+console.log('API status:', {
+    authAPI: !!window.authAPI,
+    gasAPI: !!window.gasAPI,
+    makeJsonpRequest: !!window.makeJsonpRequest,
+    APP_STATE: window.APP_STATE
 });
 </script>
