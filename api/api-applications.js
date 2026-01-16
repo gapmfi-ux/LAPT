@@ -24,8 +24,11 @@ class ApplicationsAPI {
     return this.api.request('getAllApplicationCounts');
   }
 
-  async getApplicationDetails(appNumber) {
-    return this.api.request('getApplicationDetails', { appNumber });
+  async getApplicationDetails(appNumber, userName = '') {
+    return this.api.request('getApplicationDetails', { 
+      appNumber: appNumber,
+      userName: userName 
+    });
   }
 
   async getApplicationDocuments(appNumber) {
@@ -37,31 +40,36 @@ class ApplicationsAPI {
   }
 
   async saveApplicationDraft(applicationData) {
-    return this.api.request('saveApplicationDraft', applicationData);
+    // Sending appNumber directly (not as JSON string)
+    return this.api.request('saveApplicationDraft', { 
+      applicationData: JSON.stringify({ 
+        appNumber: applicationData.appNumber,
+        isDraft: true 
+      }) 
+    });
   }
 
   async submitApplication(applicationData) {
-    return this.api.request('submitApplication', applicationData);
+    // Sending appNumber directly (not as JSON string)
+    return this.api.request('submitApplication', { 
+      applicationData: JSON.stringify({ 
+        appNumber: applicationData.appNumber 
+      }) 
+    });
   }
-
-
-async getApplicationDetails(appNumber, userName) {  // Note: takes userName parameter
-  return this.api.request('getApplicationDetails', { appNumber, userName });
-}
-
-async saveApplicationDraft(applicationData, userName) {
-  return this.api.request('saveApplicationDraft', { ...applicationData, userName });
-}
-
-async submitApplication(applicationData, userName) {
-  return this.api.request('submitApplication', { ...applicationData, userName });
-}
 
   async revertApplicationStage(appNumber, targetStage, userName) {
     return this.api.request('revertApplicationStage', {
       appNumber: appNumber,
       targetStage: targetStage,
       userName: userName
+    });
+  }
+
+  async saveProcessApplicationForm(appNumber, formData) {
+    return this.api.request('saveProcessApplicationForm', {
+      appNumber: appNumber,
+      formData: JSON.stringify(formData)
     });
   }
 }
