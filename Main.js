@@ -10,28 +10,58 @@ let currentViewingAppData = null;
 // ===== API INITIALIZATION =====
 async function initializeAPI() {
     try {
-        // Load all API modules
-        await window.ApiLoader.loadAll();
-        console.log('API modules loaded successfully');
-        
-        // Wait for APIs to be ready
+        // If an ApiLoader exists, load modules. If not, continue in offline/demo mode.
+        if (window.ApiLoader && typeof window.ApiLoader.loadAll === 'function') {
+            try {
+                await window.ApiLoader.loadAll();
+                console.log('API modules loaded successfully via ApiLoader');
+            } catch (err) {
+                console.warn('ApiLoader.loadAll failed:', err);
+            }
+        } else {
+            console.warn('ApiLoader not found; skipping module load.');
+        }
+
+        // Wait briefly for APIs (main-api.js) to initialize globals (apiService / gasAPI / appsAPI).
         await new Promise(resolve => {
+            let waited = 0;
             const checkInterval = setInterval(() => {
-                if (window.apiService && window.gasAPI) {
+                if (window.apiService || window.gasAPI || window.appsAPI || window.newAppAPI || window.viewAppAPI) {
                     clearInterval(checkInterval);
                     resolve();
+                } else if (waited >= 3000) {
+                    // Stop waiting after 3s - proceed in offline mode
+                    clearInterval(checkInterval);
+                    resolve();
+                } else {
+                    waited += 100;
                 }
             }, 100);
         });
-        
-        // Test connection
-        const testResult = await window.apiService.testConnection();
-        console.log('API Connection Test:', testResult);
-        
+
+        // Test connection if available
+        if (window.apiService && typeof window.apiService.testConnection === 'function') {
+            try {
+                const testResult = await window.apiService.testConnection();
+                console.log('API Connection Test:', testResult);
+            } catch (err) {
+                console.warn('apiService.testConnection failed:', err);
+            }
+        } else if (window.gasAPI && typeof window.gasAPI.testConnection === 'function') {
+            try {
+                const testResult = await window.gasAPI.testConnection();
+                console.log('API Connection Test (gasAPI):', testResult);
+            } catch (err) {
+                console.warn('gasAPI.testConnection failed:', err);
+            }
+        } else {
+            console.warn('No API service object available after loader step.');
+        }
+
         return true;
     } catch (error) {
         console.error('Failed to initialize API:', error);
-        // Continue anyway - APIs will be in offline mode
+        // Continue anyway - allow UI to start in offline/demo mode
         return true;
     }
 }
@@ -39,25 +69,25 @@ async function initializeAPI() {
 // ===== INITIALIZE ON LOAD =====
 document.addEventListener('DOMContentLoaded', async function() {
     console.log('DOM loaded, initializing application...');
-    
+
     // Immediately hide the loading overlay
     hideLoading();
-    
+
     // Initialize API
     const apiInitialized = await initializeAPI();
     if (!apiInitialized) {
         showErrorModal('Failed to initialize application. Please refresh the page.');
         return;
     }
-    
+
     // Check authentication
     if (!checkAuthentication()) {
         return;
     }
-    
+
     // Cache elements
     cacheElements();
-    
+
     // Set current user display
     const user = getCurrentUser();
     if (user) {
@@ -68,23 +98,23 @@ document.addEventListener('DOMContentLoaded', async function() {
         const userRole = localStorage.getItem('userRole');
         setLoggedInUser(loggedInName, userRole);
     }
-    
+
     // Set current date
     if (cachedElements['current-date']) {
         cachedElements['current-date'].textContent = new Date().toLocaleDateString('en-US', {
             weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
         });
     }
-    
+
     // Show dashboard
     showDashboard();
-    
+
     // Initialize browser notifications
     initializeBrowserNotifications();
-    
+
     // Setup event listeners
     setupEventListeners();
-    
+
     // Update welcome stats
     await updateWelcomeStats();
 });
@@ -103,7 +133,7 @@ function checkAuthentication() {
     // Check if user is authenticated via localStorage
     const loggedInName = localStorage.getItem('loggedInName');
     const user = localStorage.getItem('user');
-    
+
     if (!loggedInName && !user) {
         // Redirect to login page
         window.location.href = 'login/Login.html';
@@ -119,12 +149,12 @@ function getCurrentUser() {
         if (userStr) {
             return JSON.parse(userStr);
         }
-        
+
         // Fallback to individual fields
         const loggedInName = localStorage.getItem('loggedInName');
         const userRole = localStorage.getItem('userRole');
         const userName = localStorage.getItem('userName');
-        
+
         if (loggedInName) {
             return {
                 fullName: loggedInName,
@@ -181,7 +211,7 @@ function cacheElements() {
         'welcome-pending-approvals-count': 'welcome-pending-approvals-count',
         'welcome-approved-count': 'welcome-approved-count'
     };
-    
+
     for (const [key, id] of Object.entries(elements)) {
         cachedElements[key] = document.getElementById(id);
     }
@@ -206,7 +236,7 @@ function showDashboard() {
         appContainer.classList.remove('hidden');
         appContainer.style.display = 'block';
     }
-    
+
     // Load default section
     showSection('new');
 }
@@ -216,7 +246,7 @@ async function showSection(sectionId) {
     document.querySelectorAll('.menu-btn').forEach(btn => btn.classList.remove('active'));
     const activeBtn = document.querySelector(`.menu-btn[onclick*="showSection('${sectionId}')"]`);
     if (activeBtn) activeBtn.classList.add('active');
-    
+
     // Load the section content
     await loadSectionContent(sectionId);
 }
@@ -224,14 +254,14 @@ async function showSection(sectionId) {
 async function loadSectionContent(sectionId) {
     const mainContent = document.getElementById('main-content');
     if (!mainContent) return;
-    
+
     showLoading('Loading content...');
-    
+
     try {
         let htmlContent = '';
         let cssFile = '';
         let jsFile = '';
-        
+
         switch(sectionId) {
             case 'new':
             case 'pending':
@@ -241,29 +271,29 @@ async function loadSectionContent(sectionId) {
                 cssFile = 'applications/AppsTables.css';
                 jsFile = 'applications/AppsTables.js';
                 break;
-                
+
             case 'add-user':
             case 'users-list':
                 htmlContent = await loadComponent('user-management/UserMgt.html');
                 cssFile = 'user-management/UserMgt.css';
                 jsFile = 'user-management/UserMgt.js';
                 break;
-                
+
             default:
                 htmlContent = '<div class="error">Section not found</div>';
         }
-        
+
         mainContent.innerHTML = htmlContent;
-        
+
         // Load CSS if needed
         if (cssFile && !document.querySelector(`link[href="${cssFile}"]`)) {
             loadCSS(cssFile);
         }
-        
+
         // Load and execute JS
         if (jsFile) {
             await loadJS(jsFile);
-            
+
             // Initialize the loaded section
             if (sectionId.startsWith('add-user') || sectionId.startsWith('users-list')) {
                 if (typeof initializeUserManagement === 'function') {
@@ -275,12 +305,12 @@ async function loadSectionContent(sectionId) {
                 }
             }
         }
-        
+
         // Update badge counts for applications sections
         if (['new', 'pending', 'pending-approvals', 'approved'].includes(sectionId)) {
             await updateBadgeCounts();
         }
-        
+
     } catch (error) {
         console.error('Error loading section:', error);
         mainContent.innerHTML = `<div class="error">Error loading section: ${error.message}</div>`;
@@ -325,17 +355,27 @@ async function loadJS(filePath) {
 // ===== WELCOME STATS =====
 async function updateWelcomeStats() {
     try {
-        if (!window.apiService || !window.apiService.getAllApplicationCounts) {
+        const apiClient = window.apiService || window.gasAPI || window.appsAPI || window.newAppAPI || window.viewAppAPI || null;
+
+        if (!apiClient || (typeof apiClient.getAllApplicationCounts !== 'function' && typeof apiClient.request !== 'function')) {
             console.warn('API not available for stats');
             updateWelcomeStatsWithDefaults();
             return;
         }
-        
-        const result = await window.apiService.getAllApplicationCounts();
-        
+
+        let result;
+        if (typeof apiClient.getAllApplicationCounts === 'function') {
+            result = await apiClient.getAllApplicationCounts();
+        } else if (typeof apiClient.request === 'function') {
+            result = await apiClient.request('getAllApplicationCounts');
+        }
+
         if (result && result.success && result.data) {
             const counts = result.data;
             updateWelcomeStatsUI(counts);
+        } else if (result && typeof result === 'object' && ('new' in result || 'pending' in result)) {
+            // direct counts object
+            updateWelcomeStatsUI(result);
         } else {
             updateWelcomeStatsWithDefaults();
         }
@@ -352,14 +392,14 @@ function updateWelcomeStatsUI(counts) {
         'welcome-pending-approvals-count': counts.pendingApprovals || 0,
         'welcome-approved-count': counts.approved || 0
     };
-    
+
     for (const [id, count] of Object.entries(elements)) {
         const element = document.getElementById(id);
         if (element) {
             element.textContent = count;
         }
     }
-    
+
     // Update sidebar badges
     const badgeElements = {
         'new-count': counts.new || 0,
@@ -367,7 +407,7 @@ function updateWelcomeStatsUI(counts) {
         'pending-approvals-count': counts.pendingApprovals || 0,
         'approved-count': counts.approved || 0
     };
-    
+
     for (const [id, count] of Object.entries(badgeElements)) {
         const element = document.getElementById(id);
         if (element) {
@@ -380,11 +420,11 @@ function updateWelcomeStatsUI(counts) {
 function updateWelcomeStatsWithDefaults() {
     // Set all counts to 0
     const elements = [
-        'welcome-new-count', 'welcome-pending-count', 
+        'welcome-new-count', 'welcome-pending-count',
         'welcome-pending-approvals-count', 'welcome-approved-count',
         'new-count', 'pending-count', 'pending-approvals-count', 'approved-count'
     ];
-    
+
     elements.forEach(id => {
         const element = document.getElementById(id);
         if (element) {
@@ -442,7 +482,7 @@ function closeConfirmationModal(confirmed) {
     if (cachedElements['confirmation-modal']) {
         cachedElements['confirmation-modal'].style.display = 'none';
     }
-    
+
     if (window.confirmationCallback) {
         window.confirmationCallback(confirmed);
         window.confirmationCallback = null;
@@ -458,14 +498,17 @@ function showWarning(message) {
 // ===== APPLICATION FUNCTIONS =====
 function showNewApplicationModal() {
     showLoading('Preparing new application...');
-    
-    if (window.apiService && window.apiService.getNewApplicationContext) {
-        window.apiService.getNewApplicationContext()
+
+    const apiClient = window.newAppAPI || window.apiService || window.gasAPI || null;
+
+    if (apiClient && typeof apiClient.getNewApplicationContext === 'function') {
+        apiClient.getNewApplicationContext()
             .then(result => {
                 hideLoading();
-                if (result.success) {
-                    // Open new application modal with context
-                    showSuccessModal(`New Application Modal - Context loaded. Next app number: ${result.data.nextAppNumber}`);
+                if (result && result.success && result.data) {
+                    showSuccessModal(`New Application Modal - Context loaded. Next app number: ${result.data.nextAppNumber || result.appNumber}`);
+                } else if (result && result.appNumber) {
+                    showSuccessModal(`New Application Modal - Context loaded. Next app number: ${result.appNumber}`);
                 } else {
                     showErrorModal('Failed to load new application context');
                 }
@@ -484,19 +527,19 @@ async function logout() {
     showConfirmationModal('Are you sure you want to logout?', async (confirmed) => {
         if (confirmed) {
             showLoading('Logging out...');
-            
+
             try {
                 // Clear stored data
                 localStorage.clear();
                 sessionStorage.clear();
-                
+
                 // Clear API cache if available
                 if (window.apiService && window.apiService.clearCache) {
                     window.apiService.clearCache();
                 }
-                
+
                 hideLoading();
-                
+
                 // Redirect to login page
                 window.location.href = 'login/Login.html';
             } catch (error) {
@@ -519,14 +562,26 @@ function updateBadgeCount(status, count) {
 
 async function updateBadgeCounts() {
     try {
-        if (window.apiService && window.apiService.getAllApplicationCounts) {
-            const result = await window.apiService.getAllApplicationCounts();
+        const apiClient = window.apiService || window.gasAPI || window.appsAPI || window.newAppAPI || null;
+        if (apiClient) {
+            let result;
+            if (typeof apiClient.getAllApplicationCounts === 'function') {
+                result = await apiClient.getAllApplicationCounts();
+            } else if (typeof apiClient.request === 'function') {
+                result = await apiClient.request('getAllApplicationCounts');
+            }
+
             if (result && result.success && result.data) {
                 const counts = result.data;
                 updateBadgeCount('new', counts.new || 0);
                 updateBadgeCount('pending', counts.pending || 0);
                 updateBadgeCount('pending-approvals', counts.pendingApprovals || 0);
                 updateBadgeCount('approved', counts.approved || 0);
+            } else if (result && typeof result === 'object' && ('new' in result || 'pending' in result)) {
+                updateBadgeCount('new', result.new || 0);
+                updateBadgeCount('pending', result.pending || 0);
+                updateBadgeCount('pending-approvals', result.pendingApprovals || 0);
+                updateBadgeCount('approved', result.approved || 0);
             }
         }
     } catch (error) {
@@ -558,7 +613,7 @@ function initializeBrowserNotifications() {
         console.log('Browser notifications not supported');
         return;
     }
-    
+
     switch (Notification.permission) {
         case "granted":
             setupNotificationListener();
@@ -584,15 +639,14 @@ async function checkForNewApplications() {
     if (document.visibilityState !== 'visible') {
         try {
             const user = getCurrentUser();
-            if (user && window.apiService && window.apiService.getApplicationsCountForUser) {
-                const result = await window.apiService.getApplicationsCountForUser(user.userName || user.fullName);
-                if (result && result.success && result.data) {
-                    const count = result.data.count || 0;
-                    
-                    if (count > lastAppCount) {
-                        showApplicationNotification(user.fullName || user.name, user.role, count);
-                        lastAppCount = count;
-                    }
+            const apiClient = window.authAPI || window.appsAPI || window.apiService || window.gasAPI || null;
+            if (user && apiClient && typeof apiClient.getApplicationsCountForUser === 'function') {
+                const result = await apiClient.getApplicationsCountForUser(user.userName || user.fullName);
+                const count = (result && result.success && result.data && result.data.count) ? result.data.count : (typeof result === 'number' ? result : (result && result.count) ? result.count : 0);
+
+                if (count > lastAppCount) {
+                    showApplicationNotification(user.fullName || user.name, user.role, count);
+                    lastAppCount = count;
                 }
             }
         } catch (error) {
@@ -609,13 +663,13 @@ function showApplicationNotification(userName, userRole, count) {
             tag: "loan-application",
             requireInteraction: true
         });
-        
+
         notification.onclick = function() {
             window.focus();
             notification.close();
             refreshApplications();
         };
-        
+
         setTimeout(() => { notification.close(); }, 10000);
     }
 }
