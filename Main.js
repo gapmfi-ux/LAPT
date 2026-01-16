@@ -7,113 +7,32 @@ let notificationCheckInterval;
 let refreshInterval;
 let currentViewingAppData = null;
 
+// ===== API INITIALIZATION =====
+async function initializeAPI() {
+    try {
+        // Load all required API modules
+        await ApiLoader.loadAll();
+        console.log('API modules loaded successfully');
+        return true;
+    } catch (error) {
+        console.error('Failed to load API modules:', error);
+        showErrorModal(`Failed to load application modules: ${error.message}`);
+        return false;
+    }
+}
 
 // ===== INITIALIZE ON LOAD =====
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', async function() {
     console.log('DOM loaded, initializing application...');
     
     // Immediately hide the loading overlay
-    const loadingOverlay = document.getElementById('loading');
-    if (loadingOverlay) {
-        loadingOverlay.style.display = 'none';
-    }
+    hideLoading();
     
-    // Function to initialize app
-    function initApp() {
-        // Check authentication
-        if (!checkAuthentication()) {
-            return;
-        }
-        
-        // Cache elements
-        cacheElements();
-        
-        // Set current user display
-        const loggedInName = localStorage.getItem('loggedInName');
-        const userRole = localStorage.getItem('userRole');
-        setLoggedInUser(loggedInName, userRole);
-        
-        // Set current date
-        if (cachedElements['current-date']) {
-            cachedElements['current-date'].textContent = new Date().toLocaleDateString('en-US', {
-                weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
-            });
-        }
-        
-        // Show dashboard
-        showDashboard();
-        
-        // Initialize browser notifications
-        initializeBrowserNotifications();
-        
-        // Setup event listeners
-        setupEventListeners();
-        
-        // Update welcome stats
-        updateWelcomeStats();
+    // Initialize API
+    const apiInitialized = await initializeAPI();
+    if (!apiInitialized) {
+        return;
     }
-    
-    // Check if API is loaded
-    function checkAPI() {
-        if (window.gasAPI || window.LoanTrackerAPI) {
-            console.log('API loaded');
-            initApp();
-        } else if (window.loadAPIScripts) {
-            // Load API scripts
-            window.loadAPIScripts().then(() => {
-                setTimeout(initApp, 100);
-            });
-        } else {
-            // Wait and check again
-            console.log('Waiting for API...');
-            setTimeout(checkAPI, 100);
-        }
-    }
-    
-    // Start checking
-    setTimeout(checkAPI, 100);
-});
-
-// Emergency timeout
-setTimeout(function() {
-    const loading = document.getElementById('loading');
-    if (loading && loading.style.display !== 'none') {
-        console.warn('Emergency: Forcing loading overlay to hide');
-        loading.style.display = 'none';
-    }
-}, 3000);
-
-// ===== AUTHENTICATION CHECK =====
-function checkAuthentication() {
-    const loggedInName = localStorage.getItem('loggedInName');
-    if (!loggedInName) {
-        // Redirect to login page
-        window.location.href = 'login.html';
-        return false;
-    }
-    return true;
-}
-
-// ===== LOADING OVERLAY MANAGEMENT =====
-function showLoading() {
-    const loading = document.getElementById('loading');
-    if (loading) {
-        loading.style.display = 'flex';
-        document.body.style.overflow = 'hidden';
-    }
-}
-
-function hideLoading() {
-    const loading = document.getElementById('loading');
-    if (loading) {
-        loading.style.display = 'none';
-        document.body.style.overflow = 'auto';
-    }
-}
-
-// ===== INITIALIZATION =====
-function initializeApp() {
-    console.log('Loan Application Tracker initialized');
     
     // Check authentication
     if (!checkAuthentication()) {
@@ -124,9 +43,15 @@ function initializeApp() {
     cacheElements();
     
     // Set current user display
-    const loggedInName = localStorage.getItem('loggedInName');
-    const userRole = localStorage.getItem('userRole');
-    setLoggedInUser(loggedInName, userRole);
+    const user = window.APP_STATE?.user;
+    if (user) {
+        setLoggedInUser(user.fullName, user.role);
+    } else {
+        // Fallback to localStorage
+        const loggedInName = localStorage.getItem('loggedInName');
+        const userRole = localStorage.getItem('userRole');
+        setLoggedInUser(loggedInName, userRole);
+    }
     
     // Set current date
     if (cachedElements['current-date']) {
@@ -145,9 +70,74 @@ function initializeApp() {
     setupEventListeners();
     
     // Update welcome stats
-    updateWelcomeStats();
+    await updateWelcomeStats();
+    
+    // Test API connection
+    testAPIConnection();
+});
+
+// Emergency timeout
+setTimeout(function() {
+    const loading = document.getElementById('loading');
+    if (loading && loading.style.display !== 'none') {
+        console.warn('Emergency: Forcing loading overlay to hide');
+        loading.style.display = 'none';
+    }
+}, 3000);
+
+// ===== API CONNECTION TEST =====
+async function testAPIConnection() {
+    try {
+        if (window.gasAPI && window.gasAPI.testConnection) {
+            const testResult = await window.gasAPI.testConnection();
+            console.log('API Connection Test:', testResult);
+            
+            if (!testResult.connected) {
+                console.warn('API connection issues detected');
+            }
+        }
+    } catch (error) {
+        console.error('API connection test failed:', error);
+    }
 }
 
+// ===== AUTHENTICATION CHECK =====
+function checkAuthentication() {
+    // Check if user is authenticated via API state
+    if (window.APP_STATE?.user) {
+        return true;
+    }
+    
+    // Fallback to localStorage
+    const loggedInName = localStorage.getItem('loggedInName');
+    if (!loggedInName) {
+        // Redirect to login page
+        window.location.href = 'login.html';
+        return false;
+    }
+    return true;
+}
+
+// ===== LOADING OVERLAY MANAGEMENT =====
+function showLoading(message = 'Loading...') {
+    const loading = document.getElementById('loading');
+    if (loading) {
+        const p = loading.querySelector('p');
+        if (p && message) p.textContent = message;
+        loading.style.display = 'flex';
+        document.body.style.overflow = 'hidden';
+    }
+}
+
+function hideLoading() {
+    const loading = document.getElementById('loading');
+    if (loading) {
+        loading.style.display = 'none';
+        document.body.style.overflow = 'auto';
+    }
+}
+
+// ===== ELEMENT CACHING =====
 function cacheElements() {
     const elements = {
         'logged-in-user': 'logged-in-user',
@@ -214,7 +204,7 @@ async function loadSectionContent(sectionId) {
     const mainContent = document.getElementById('main-content');
     if (!mainContent) return;
     
-    showLoading();
+    showLoading('Loading content...');
     
     try {
         let htmlContent = '';
@@ -260,14 +250,14 @@ async function loadSectionContent(sectionId) {
                 }
             } else {
                 if (typeof initializeApplicationsSection === 'function') {
-                    initializeApplicationsSection(sectionId);
+                    await initializeApplicationsSection(sectionId);
                 }
             }
         }
         
         // Update badge counts for applications sections
         if (['new', 'pending', 'pending-approvals', 'approved'].includes(sectionId)) {
-            updateBadgeCounts();
+            await updateBadgeCounts();
         }
         
     } catch (error) {
@@ -298,7 +288,7 @@ async function loadJS(filePath) {
         const script = document.createElement('script');
         script.src = filePath;
         script.onload = resolve;
-        script.onerror = reject;
+        script.onerror = () => reject(new Error(`Failed to load script: ${filePath}`));
         document.body.appendChild(script);
     });
 }
@@ -306,57 +296,50 @@ async function loadJS(filePath) {
 // ===== WELCOME STATS =====
 async function updateWelcomeStats() {
     try {
-        // Simulate API call - replace with actual API call
-        const counts = await getAllApplicationCounts();
-        
-        // Update welcome stats
-        const elements = {
-            'welcome-new-count': counts.new || 0,
-            'welcome-pending-count': counts.pending || 0,
-            'welcome-pending-approvals-count': counts.pendingApprovals || 0,
-            'welcome-approved-count': counts.approved || 0
-        };
-        
-        for (const [id, count] of Object.entries(elements)) {
-            const element = document.getElementById(id);
-            if (element) {
-                element.textContent = count;
-            }
+        if (!window.gasAPI || !window.gasAPI.getAllApplicationCounts) {
+            console.warn('API not available for stats');
+            return;
         }
         
-        // Update sidebar badges
-        const badgeElements = {
-            'new-count': counts.new || 0,
-            'pending-count': counts.pending || 0,
-            'pending-approvals-count': counts.pendingApprovals || 0,
-            'approved-count': counts.approved || 0
-        };
+        const result = await window.gasAPI.getAllApplicationCounts();
         
-        for (const [id, count] of Object.entries(badgeElements)) {
-            const element = document.getElementById(id);
-            if (element) {
-                element.textContent = count;
-                element.style.display = count > 0 ? 'inline-block' : 'none';
+        if (result && result.success && result.data) {
+            const counts = result.data;
+            
+            // Update welcome stats
+            const elements = {
+                'welcome-new-count': counts.new || 0,
+                'welcome-pending-count': counts.pending || 0,
+                'welcome-pending-approvals-count': counts.pendingApprovals || 0,
+                'welcome-approved-count': counts.approved || 0
+            };
+            
+            for (const [id, count] of Object.entries(elements)) {
+                const element = document.getElementById(id);
+                if (element) {
+                    element.textContent = count;
+                }
+            }
+            
+            // Update sidebar badges
+            const badgeElements = {
+                'new-count': counts.new || 0,
+                'pending-count': counts.pending || 0,
+                'pending-approvals-count': counts.pendingApprovals || 0,
+                'approved-count': counts.approved || 0
+            };
+            
+            for (const [id, count] of Object.entries(badgeElements)) {
+                const element = document.getElementById(id);
+                if (element) {
+                    element.textContent = count;
+                    element.style.display = count > 0 ? 'inline-block' : 'none';
+                }
             }
         }
-        
     } catch (error) {
         console.error('Error updating stats:', error);
     }
-}
-
-// Simulated API function - replace with actual API
-async function getAllApplicationCounts() {
-    return new Promise((resolve) => {
-        setTimeout(() => {
-            resolve({
-                new: 5,
-                pending: 12,
-                pendingApprovals: 3,
-                approved: 25
-            });
-        }, 500);
-    });
 }
 
 // ===== MODAL FUNCTIONS =====
@@ -414,19 +397,61 @@ function closeConfirmationModal(confirmed) {
 
 // ===== APPLICATION FUNCTIONS =====
 function showNewApplicationModal() {
-    alert('New Application Modal - This would open a modal for creating a new application');
-    // Implement modal opening logic here
+    showLoading('Preparing new application...');
+    
+    if (window.gasAPI && window.gasAPI.getNewApplicationContext) {
+        window.gasAPI.getNewApplicationContext()
+            .then(result => {
+                hideLoading();
+                if (result.success) {
+                    // Open new application modal with context
+                    alert(`New Application Modal - Context loaded. Next app number: ${result.data.nextAppNumber}`);
+                } else {
+                    showErrorModal('Failed to load new application context');
+                }
+            })
+            .catch(error => {
+                hideLoading();
+                showErrorModal(`Error: ${error.message}`);
+            });
+    } else {
+        hideLoading();
+        alert('New Application Modal - API not available');
+    }
 }
 
-function logout() {
-    if (confirm('Are you sure you want to logout?')) {
-        // Clear stored data
-        localStorage.clear();
-        sessionStorage.clear();
-        
-        // Redirect to login page
-        window.location.href = 'login.html';
-    }
+async function logout() {
+    showConfirmationModal('Are you sure you want to logout?', async (confirmed) => {
+        if (confirmed) {
+            showLoading('Logging out...');
+            
+            try {
+                // Use authAPI logout if available
+                if (window.authAPI && window.authAPI.logout) {
+                    await window.authAPI.logout();
+                }
+                
+                // Clear stored data
+                localStorage.clear();
+                sessionStorage.clear();
+                
+                // Clear API cache
+                if (window.apiCache) {
+                    window.apiCache.clear();
+                }
+                
+                hideLoading();
+                
+                // Redirect to login page
+                window.location.href = 'login.html';
+            } catch (error) {
+                hideLoading();
+                console.error('Error during logout:', error);
+                // Still redirect to login
+                window.location.href = 'login.html';
+            }
+        }
+    });
 }
 
 function updateBadgeCount(status, count) {
@@ -437,23 +462,27 @@ function updateBadgeCount(status, count) {
     }
 }
 
-function updateBadgeCounts() {
-    getAllApplicationCounts()
-        .then(function(counts) {
-            updateBadgeCount('new', counts.new);
-            updateBadgeCount('pending', counts.pending);
-            updateBadgeCount('pending-approvals', counts.pendingApprovals);
-            updateBadgeCount('approved', counts.approved);
-        })
-        .catch(function(error) {
-            console.error('Error updating badge counts:', error);
-        });
+async function updateBadgeCounts() {
+    try {
+        if (window.gasAPI && window.gasAPI.getAllApplicationCounts) {
+            const result = await window.gasAPI.getAllApplicationCounts();
+            if (result && result.success && result.data) {
+                const counts = result.data;
+                updateBadgeCount('new', counts.new || 0);
+                updateBadgeCount('pending', counts.pending || 0);
+                updateBadgeCount('pending-approvals', counts.pendingApprovals || 0);
+                updateBadgeCount('approved', counts.approved || 0);
+            }
+        }
+    } catch (error) {
+        console.error('Error updating badge counts:', error);
+    }
 }
 
 // ===== NOTIFICATIONS =====
 function updateUserNotificationBadge() {
-    // Simulate getting notification count
-    const count = Math.floor(Math.random() * 10);
+    // This would be implemented with actual notification data
+    const count = 0; // Placeholder
     const badge = cachedElements['user-notification-badge'];
     if (badge) {
         if (count > 0) {
@@ -473,6 +502,7 @@ function initializeBrowserNotifications() {
             setupNotificationListener();
             break;
         case "denied":
+            console.log('Notifications denied by user');
             break;
         case "default":
             Notification.requestPermission().then(permission => {
@@ -489,15 +519,23 @@ function setupNotificationListener() {
     }, 30000);
 }
 
-function checkForNewApplications() {
-    // Simulate checking for new applications
+async function checkForNewApplications() {
     if (document.visibilityState !== 'visible') {
-        const userName = localStorage.getItem('loggedInName') || "Current User";
-        const userRole = localStorage.getItem('userRole') || "User";
-        const count = Math.floor(Math.random() * 3);
-        
-        if (count > 0) {
-            showApplicationNotification(userName, userRole, count);
+        try {
+            const user = window.APP_STATE?.user;
+            if (user && window.gasAPI && window.gasAPI.getApplicationsCountForUser) {
+                const result = await window.gasAPI.getApplicationsCountForUser(user.userName);
+                if (result && result.success && result.data) {
+                    const count = result.data.count || 0;
+                    
+                    if (count > lastAppCount) {
+                        showApplicationNotification(user.fullName, user.role, count);
+                        lastAppCount = count;
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Error checking for new applications:', error);
         }
     }
 }
@@ -505,7 +543,7 @@ function checkForNewApplications() {
 function showApplicationNotification(userName, userRole, count) {
     if (Notification.permission === "granted" && document.visibilityState !== 'visible') {
         const notification = new Notification("New Application Assignment", {
-            body: `${userName} have ${count} application(s) for your action${userRole ? ` as ${userRole}` : ''}`,
+            body: `${userName} has ${count} new application(s) for your action${userRole ? ` as ${userRole}` : ''}`,
             icon: "https://img.icons8.com/color/192/000000/loan.png",
             tag: "loan-application",
             requireInteraction: true
@@ -532,31 +570,6 @@ function refreshApplications() {
     }
 }
 
-// ===== INITIALIZE ON LOAD =====
-document.addEventListener('DOMContentLoaded', function() {
-    console.log('DOM loaded, initializing application...');
-    
-    // Immediately hide the loading overlay
-    const loadingOverlay = document.getElementById('loading');
-    if (loadingOverlay) {
-        loadingOverlay.style.display = 'none';
-    }
-    
-    // Initialize application
-    setTimeout(() => {
-        initializeApp();
-    }, 100);
-});
-
-// Emergency timeout to ensure loading overlay disappears
-setTimeout(function() {
-    const loading = document.getElementById('loading');
-    if (loading && loading.style.display !== 'none') {
-        console.warn('Emergency: Forcing loading overlay to hide');
-        loading.style.display = 'none';
-    }
-}, 3000);
-
 // ===== MAKE FUNCTIONS GLOBALLY AVAILABLE =====
 window.showSection = showSection;
 window.refreshApplications = refreshApplications;
@@ -569,3 +582,5 @@ window.closeErrorModal = closeErrorModal;
 window.showConfirmationModal = showConfirmationModal;
 window.closeConfirmationModal = closeConfirmationModal;
 window.updateWelcomeStats = updateWelcomeStats;
+window.showLoading = showLoading;
+window.hideLoading = hideLoading;
