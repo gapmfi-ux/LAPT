@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <title>Loan Application Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#2563eb">
+  
+  <!-- Font Awesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  
+  <!-- CSS Files -->
+  <link rel="stylesheet" href="Main.css">
+  
+  <!-- PWA Manifest (optional) -->
+  <link rel="manifest" href="manifest.json">
+  
+  <!-- Favicon -->
+  <link rel="icon" href="https://img.icons8.com/color/96/000000/loan.png" type="image/png">
+</head>
+<body class="app-page">
+  <!-- Loading Overlay -->
+  <div id="loading" class="loading-overlay">
+    <div class="spinner"></div>
+    <p>Loading...</p>
+  </div>
+
+  <!-- Success Modal -->
+  <div id="success-modal" class="modal-overlay">
+    <div class="modal-message">
+      <i class="fas fa-check-circle success-icon"></i>
+      <div id="success-message"></div>
+      <button onclick="closeSuccessModal()" class="btn-primary">OK</button>
+    </div>
+  </div>
+
+  <!-- Error Modal -->
+  <div id="error-modal" class="modal-overlay">
+    <div class="modal-message">
+      <i class="fas fa-exclamation-circle error-icon"></i>
+      <div id="error-message"></div>
+      <button onclick="closeErrorModal()" class="btn-primary">OK</button>
+    </div>
+  </div>
+
+  <!-- Confirmation Modal -->
+  <div id="confirmation-modal" class="modal-overlay">
+    <div class="modal-message">
+      <i class="fas fa-question-circle confirmation-icon"></i>
+      <div id="confirmation-message"></div>
+      <div class="modal-actions">
+        <button onclick="closeConfirmationModal(false)" class="btn-secondary">Cancel</button>
+        <button onclick="closeConfirmationModal(true)" class="btn-primary">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main App Container -->
+  <div id="app-container" class="hidden">
+    <!-- Top Menu -->
+    <div class="top-menu">
+      <div class="menu-left">
+        <button class="add-app-btn" onclick="showNewApplicationModal()">
+          <i class="fas fa-plus"></i> Add New Application
+        </button>
+      </div>
+      <div class="app-title">
+        <i class="fas fa-layer-group"></i> LOAN APPLICATION TRACKER
+      </div>
+      <div class="user-info">
+        <span class="date-display" id="current-date"></span>
+        <div class="user-notification-container">
+          <span id="logged-in-user"></span>
+          <span id="user-notification-badge" class="notification-badge"></span>
+        </div>
+        <button class="logout-btn" onclick="logout()" title="Logout">
+          <i class="fas fa-sign-out-alt"></i>
+        </button>
+      </div>
+    </div>
+    
+    <div class="container">
+      <!-- Side Menu -->
+      <div class="side-menu">
+        <div class="menu-section">
+          <div class="menu-title"><i class="fas fa-tasks"></i> Applications</div>
+          <button class="menu-btn" onclick="showSection('new')">
+            <i class="fas fa-file-alt"></i> New <span class="badge" id="new-count">0</span>
+          </button>
+          <button class="menu-btn active" onclick="showSection('pending')">
+            <i class="fas fa-clock"></i> Pending <span class="badge" id="pending-count">0</span>
+          </button>
+          <button class="menu-btn" onclick="showSection('pending-approvals')">
+            <i class="fas fa-hourglass-half"></i> Pending Approvals <span class="badge" id="pending-approvals-count">0</span>
+          </button>
+          <button class="menu-btn" onclick="showSection('approved')">
+            <i class="fas fa-check-circle"></i> Approved <span class="badge" id="approved-count">0</span>
+          </button>
+        </div>
+        <div class="menu-section">
+          <div class="menu-title"><i class="fas fa-users"></i> User Management</div>
+          <button class="menu-btn" onclick="showSection('add-user')">
+            <i class="fas fa-user-plus"></i> Add User
+          </button>
+          <button class="menu-btn" onclick="showSection('users-list')">
+            <i class="fas fa-list"></i> Users List
+          </button>
+        </div>
+      </div>
+      
+      <!-- Main Content Area -->
+      <div class="main-content" id="main-content">
+        <!-- Content will be loaded dynamically here -->
+        <div class="welcome-message">
+          <div class="welcome-card">
+            <i class="fas fa-layer-group welcome-icon"></i>
+            <h1>Welcome to Loan Application Tracker</h1>
+            <p>Select a section from the menu to get started</p>
+            <div class="welcome-stats">
+              <div class="stat-card">
+                <i class="fas fa-file-alt stat-icon"></i>
+                <div class="stat-number" id="welcome-new-count">0</div>
+                <div class="stat-label">New Applications</div>
+              </div>
+              <div class="stat-card">
+                <i class="fas fa-clock stat-icon"></i>
+                <div class="stat-number" id="welcome-pending-count">0</div>
+                <div class="stat-label">Pending</div>
+              </div>
+              <div class="stat-card">
+                <i class="fas fa-hourglass-half stat-icon"></i>
+                <div class="stat-number" id="welcome-pending-approvals-count">0</div>
+                <div class="stat-label">Pending Approvals</div>
+              </div>
+              <div class="stat-card">
+                <i class="fas fa-check-circle stat-icon"></i>
+                <div class="stat-number" id="welcome-approved-count">0</div>
+                <div class="stat-label">Approved</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<!-- Load APIs -->
+<script src="api-loader.js"></script>
+<script src="Main.js"></script>
+
+</body>
+</html>
