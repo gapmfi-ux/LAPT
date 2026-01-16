@@ -20,33 +20,13 @@ document.addEventListener('DOMContentLoaded', function() {
         loginForm.addEventListener('submit', handleLoginSubmit);
     }
     
-    // Test API connection on load
-    testApiConnection();
+    // Debug: Check if API is loaded
+    console.log('API Status:', {
+        apiService: !!window.apiService,
+        gasAPI: !!window.gasAPI,
+        APP_STATE: window.APP_STATE
+    });
 });
-
-async function testApiConnection() {
-    try {
-        // Wait a moment for api.js to load
-        setTimeout(async () => {
-            if (window.apiService && window.apiService.testConnection) {
-                console.log('Testing API connection...');
-                const test = await window.apiService.testConnection();
-                console.log('API Connection Test:', test);
-                
-                if (!test.connected) {
-                    console.warn('API connection issues detected');
-                    // Show warning but don't block login
-                    showWarning('API connection unstable. Some features may be limited.');
-                }
-            } else {
-                console.warn('API service not available');
-                showWarning('API service not initialized. Using offline mode.');
-            }
-        }, 500);
-    } catch (error) {
-        console.warn('API connection test failed:', error);
-    }
-}
 
 function checkExistingSession() {
     const loggedInName = localStorage.getItem('loggedInName');
@@ -55,7 +35,10 @@ function checkExistingSession() {
     if (loggedInName || user) {
         // User might be already logged in, redirect to main page
         console.log('Existing session found, redirecting...');
-        window.location.href = '../index.html';
+        showLoading('Redirecting to dashboard...');
+        setTimeout(() => {
+            window.location.href = '../index.html';
+        }, 500);
     }
 }
 
@@ -74,14 +57,40 @@ async function handleLoginSubmit(e) {
     try {
         console.log('Attempting to authenticate:', name);
         
-        // Use the new API service
+        // Check which API is available
+        let api = window.apiService || window.gasAPI;
+        
+        if (!api) {
+            console.warn('No API service found, using fallback authentication');
+            // Create fallback user data
+            const fallbackUser = {
+                userName: name.toLowerCase().replace(/\s+/g, '.'),
+                fullName: name,
+                role: 'User',
+                permissions: ['view_applications']
+            };
+            handleSuccessfulLogin(fallbackUser);
+            return;
+        }
+        
+        // First test the connection if possible
+        if (api.testConnection) {
+            try {
+                const testResult = await api.testConnection();
+                console.log('Connection test result:', testResult);
+            } catch (connError) {
+                console.warn('Connection test failed, continuing with login:', connError);
+            }
+        }
+        
+        // Try to authenticate
         let authResult;
-        if (window.apiService && window.apiService.authenticateUser) {
-            authResult = await window.apiService.authenticateUser(name);
+        if (api.authenticateUser) {
+            authResult = await api.authenticateUser(name);
             console.log('Auth API result:', authResult);
         } else {
-            // Fallback if API service isn't available
-            console.warn('API service not available, using fallback authentication');
+            // Fallback authentication
+            console.warn('No authenticateUser method, using fallback');
             authResult = {
                 success: true,
                 user: {
@@ -107,7 +116,7 @@ async function handleLoginSubmit(e) {
     } catch (error) {
         console.error('Login error:', error);
         
-        // For development/demo purposes, allow login even if API fails
+        // Even if there's an error, allow login for demo purposes
         console.log('Using fallback login due to error');
         handleSuccessfulLogin({
             fullName: name,
@@ -125,17 +134,12 @@ function handleSuccessfulLogin(userData) {
     console.log('Login successful:', userData);
     
     // Store user info
-    localStorage.setItem('loggedInName', userData.fullName || userData.name || userData.userName);
+    localStorage.setItem('loggedInName', userData.fullName || userData.name || userData.userName || userData);
     localStorage.setItem('userRole', userData.role || 'User');
-    localStorage.setItem('userName', userData.userName || userData.fullName.toLowerCase().replace(/\s+/g, '.'));
+    localStorage.setItem('userName', userData.userName || (userData.fullName || userData.name || userData).toLowerCase().replace(/\s+/g, '.'));
     
     // Store full user object
     localStorage.setItem('user', JSON.stringify(userData));
-    
-    // Also store in APP_STATE for immediate use (if available)
-    if (window.updateAppState) {
-        window.updateAppState('user', userData);
-    }
     
     // Show success message briefly
     showSuccessMessage('Login successful! Redirecting...');
@@ -182,11 +186,6 @@ function showError(message) {
         errorMessage.textContent = message;
         errorModal.style.display = 'flex';
     }
-}
-
-function showWarning(message) {
-    console.warn('Warning:', message);
-    // You could implement a non-modal warning display
 }
 
 function showSuccessMessage(message) {
