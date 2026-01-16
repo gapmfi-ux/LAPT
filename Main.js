@@ -7,6 +7,82 @@ let notificationCheckInterval;
 let refreshInterval;
 let currentViewingAppData = null;
 
+
+// ===== INITIALIZE ON LOAD =====
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('DOM loaded, initializing application...');
+    
+    // Immediately hide the loading overlay
+    const loadingOverlay = document.getElementById('loading');
+    if (loadingOverlay) {
+        loadingOverlay.style.display = 'none';
+    }
+    
+    // Function to initialize app
+    function initApp() {
+        // Check authentication
+        if (!checkAuthentication()) {
+            return;
+        }
+        
+        // Cache elements
+        cacheElements();
+        
+        // Set current user display
+        const loggedInName = localStorage.getItem('loggedInName');
+        const userRole = localStorage.getItem('userRole');
+        setLoggedInUser(loggedInName, userRole);
+        
+        // Set current date
+        if (cachedElements['current-date']) {
+            cachedElements['current-date'].textContent = new Date().toLocaleDateString('en-US', {
+                weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+            });
+        }
+        
+        // Show dashboard
+        showDashboard();
+        
+        // Initialize browser notifications
+        initializeBrowserNotifications();
+        
+        // Setup event listeners
+        setupEventListeners();
+        
+        // Update welcome stats
+        updateWelcomeStats();
+    }
+    
+    // Check if API is loaded
+    function checkAPI() {
+        if (window.gasAPI || window.LoanTrackerAPI) {
+            console.log('API loaded');
+            initApp();
+        } else if (window.loadAPIScripts) {
+            // Load API scripts
+            window.loadAPIScripts().then(() => {
+                setTimeout(initApp, 100);
+            });
+        } else {
+            // Wait and check again
+            console.log('Waiting for API...');
+            setTimeout(checkAPI, 100);
+        }
+    }
+    
+    // Start checking
+    setTimeout(checkAPI, 100);
+});
+
+// Emergency timeout
+setTimeout(function() {
+    const loading = document.getElementById('loading');
+    if (loading && loading.style.display !== 'none') {
+        console.warn('Emergency: Forcing loading overlay to hide');
+        loading.style.display = 'none';
+    }
+}, 3000);
+
 // ===== AUTHENTICATION CHECK =====
 function checkAuthentication() {
     const loggedInName = localStorage.getItem('loggedInName');
