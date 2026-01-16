@@ -4,6 +4,8 @@ class APILoader {
     this.apiService = new ApiService();
     this.auth = new AuthAPI(this.apiService);
     this.applications = new ApplicationsAPI(this.apiService);
+    this.newApplication = new NewApplicationAPI(this.apiService);    // ADDED
+    this.viewApplication = new ViewApplicationAPI(this.apiService);  // ADDED
     this.users = new UsersAPI(this.apiService);
     this.files = new FilesAPI(this.apiService);
     this.workflow = new WorkflowAPI(this.apiService);
@@ -27,6 +29,8 @@ class APILoader {
       core: this.apiService,
       auth: this.auth,
       applications: this.applications,
+      newApplication: this.newApplication,    // ADDED
+      viewApplication: this.viewApplication,  // ADDED
       users: this.users,
       files: this.files,
       workflow: this.workflow,
@@ -39,13 +43,14 @@ class APILoader {
       getPendingApplications: this.applications.getPendingApplications.bind(this.applications),
       getPendingApprovalApplications: this.applications.getPendingApprovalApplications.bind(this.applications),
       getApprovedApplications: this.applications.getApprovedApplications.bind(this.applications),
-      getApplicationDetails: this.applications.getApplicationDetails.bind(this.applications),
-      getNewApplicationContext: this.applications.getNewApplicationContext.bind(this.applications),
-      copyLendingTemplate: this.files.copyLendingTemplate.bind(this.files),
+      getApplicationDetails: this.viewApplication.getApplicationDetails.bind(this.viewApplication),
+      getNewApplicationContext: this.newApplication.getNewApplicationContext.bind(this.newApplication),
+      copyLendingTemplate: this.newApplication.copyLendingTemplate.bind(this.newApplication),
       addUser: this.users.addUser.bind(this.users),
       deleteUser: this.users.deleteUser.bind(this.users),
       getAllUsers: this.users.getAllUsers.bind(this.users),
-      testConnection: this.apiService.testConnection.bind(this.apiService)
+      testConnection: this.apiService.testConnection.bind(this.apiService),
+      saveProcessApplicationForm: this.newApplication.saveProcessApplicationForm.bind(this.newApplication)
     };
   }
 }
@@ -69,6 +74,8 @@ document.addEventListener('DOMContentLoaded', function() {
       window.gasAPI = apis; // For backward compatibility
       window.authAPI = apis.auth;
       window.appsAPI = apis.applications;
+      window.newAppAPI = apis.newApplication;      // ADDED
+      window.viewAppAPI = apis.viewApplication;    // ADDED
       window.usersAPI = apis.users;
       window.filesAPI = apis.files;
       window.workflowAPI = apis.workflow;
