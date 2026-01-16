@@ -13,6 +13,7 @@ class AuthAPI {
   }
 
   async getApplicationsCountForUser(userName) {
+    // This function returns a number, not an object
     return this.api.request('getApplicationsCountForUser', { userName });
   }
 
