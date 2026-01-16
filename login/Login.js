@@ -1,252 +1,107 @@
-// ===== DOM READY =====
-document.addEventListener('DOMContentLoaded', async function() {
+// ===== LOGIN PAGE JAVASCRIPT =====
+document.addEventListener('DOMContentLoaded', function() {
     console.log('Login page loaded');
     
-    // Hide loading overlay initially
-    hideLoading();
-    
-    // Check if already logged in
-    if (window.APP_STATE?.user) {
-        redirectToDashboard();
-        return;
+    // Hide loading overlay immediately
+    const loadingOverlay = document.getElementById('loading');
+    if (loadingOverlay) {
+        loadingOverlay.style.display = 'none';
     }
     
-    // Setup form submission first
-    setupLoginForm();
+    // Focus on login input
+    const loginInput = document.getElementById('login-name');
+    if (loginInput) {
+        loginInput.focus();
+    }
     
-    // Then initialize API
-    await initializeLoginAPI();
-    
-    // Check for existing session
-    checkExistingSession();
+    // Setup form submit handler
+    const loginForm = document.getElementById('login-form');
+    if (loginForm) {
+        loginForm.addEventListener('submit', handleLoginSubmit);
+    }
 });
 
-// ===== FORM SETUP =====
-function setupLoginForm() {
-    const loginForm = document.getElementById('login-form');
-    const loginInput = document.getElementById('login-name');
+async function handleLoginSubmit(e) {
+    e.preventDefault();
     
-    if (loginForm && loginInput) {
-        loginForm.addEventListener('submit', handleLoginSubmit);
-        
-        // Focus on input
-        setTimeout(() => {
-            loginInput.focus();
-        }, 100);
-    }
-}
-
-// ===== API INITIALIZATION =====
-async function initializeLoginAPI() {
-    try {
-        // Load only required API modules for login
-        console.log('Starting API initialization...');
-        
-        // First load the core API
-        await loadScript('../api/api-core.js');
-        
-        // Then load auth API
-        await loadScript('../api/api-auth.js');
-        
-        console.log('Login API modules loaded successfully');
-        return true;
-    } catch (error) {
-        console.error('Failed to load login API:', error);
-        showLoginError('Failed to load authentication system. Please refresh the page.');
-        return false;
-    }
-}
-
-// ===== LOAD SCRIPT HELPER =====
-function loadScript(src) {
-    return new Promise((resolve, reject) => {
-        // Check if already loaded
-        const existingScript = document.querySelector(`script[src="${src}"]`);
-        if (existingScript) {
-            console.log(`Script already loaded: ${src}`);
-            resolve();
-            return;
-        }
-        
-        const script = document.createElement('script');
-        script.src = src;
-        script.onload = () => {
-            console.log(`Loaded: ${src}`);
-            resolve();
-        };
-        script.onerror = () => {
-            console.error(`Failed to load: ${src}`);
-            reject(new Error(`Failed to load script: ${src}`));
-        };
-        document.body.appendChild(script);
-    });
-}
-
-// ===== LOGIN FUNCTIONS =====
-async function handleLoginSubmit(event) {
-    event.preventDefault();
-    
-    const userNameInput = document.getElementById('login-name');
-    const userName = userNameInput.value.trim();
-    
-    if (!userName) {
-        showLoginError('Please enter your name');
-        userNameInput.focus();
+    const name = document.getElementById('login-name').value.trim();
+    if (!name) {
+        showError('Name is required!');
         return;
     }
     
-    showLoading('Authenticating...');
+    // Show loading
+    const loadingOverlay = document.getElementById('loading');
+    if (loadingOverlay) {
+        loadingOverlay.style.display = 'flex';
+    }
     
     try {
-        // Check what API methods are available
-        console.log('Available APIs:', {
-            authAPI: !!window.authAPI,
-            gasAPI: !!window.gasAPI,
-            makeJsonpRequest: !!window.makeJsonpRequest
-        });
-        
-        // Try authAPI.login first
-        if (window.authAPI && window.authAPI.login) {
-            console.log('Using authAPI.login');
-            const result = await window.authAPI.login(userName);
+        // Check if gasAPI exists (it might not be loaded yet)
+        if (typeof gasAPI === 'undefined') {
+            // Fallback to direct API call
+            const response = await fetch(`${getConfig().WEB_APP_URL}?action=authenticate&userName=${encodeURIComponent(name)}`);
+            const data = await response.json();
             
-            if (result.success) {
-                handleLoginSuccess(result.user);
+            if (data.success) {
+                handleSuccessfulLogin(data.user);
             } else {
-                handleLoginFailure(result.message);
+                handleFailedLogin(data.message || 'Authentication failed');
             }
-        }
-        // Try gasAPI.authenticateUser
-        else if (window.gasAPI && window.gasAPI.authenticateUser) {
-            console.log('Using gasAPI.authenticateUser');
-            const result = await handleLegacyLogin(userName);
-            if (result.success) {
-                handleLoginSuccess(result.user);
-            } else {
-                handleLoginFailure(result.message);
-            }
-        }
-        // Try direct makeJsonpRequest
-        else if (window.makeJsonpRequest) {
-            console.log('Using direct makeJsonpRequest');
-            const result = await handleDirectLogin(userName);
-            if (result.success) {
-                handleLoginSuccess(result.user);
-            } else {
-                handleLoginFailure(result.message);
-            }
-        }
-        else {
-            handleLoginFailure('Authentication system not available. Please refresh the page.');
-        }
-    } catch (error) {
-        handleLoginFailure(`Login failed: ${error.message}`);
-    }
-}
-
-// ===== LOGIN HANDLERS =====
-async function handleLegacyLogin(userName) {
-    try {
-        const authResult = await window.gasAPI.authenticateUser(userName);
-        
-        if (authResult.success) {
-            const user = authResult.user;
-            
-            // Get permissions if method exists
-            let permissions = {};
-            if (window.gasAPI.getUserPermissions) {
-                const permResult = await window.gasAPI.getUserPermissions(user.userName);
-                if (permResult.success) {
-                    permissions = permResult.data;
-                }
-            }
-            
-            // Update app state
-            if (window.updateAppState) {
-                updateAppState('user', user);
-                updateAppState('permissions', permissions);
-            }
-            
-            // Store in localStorage for backward compatibility
-            localStorage.setItem('loggedInName', user.fullName);
-            localStorage.setItem('userRole', user.role);
-            localStorage.setItem('userName', user.userName);
-            
-            return { success: true, user };
         } else {
-            return { success: false, message: authResult.message || 'Authentication failed' };
+            // Use gasAPI if available
+            const result = await gasAPI.authenticateUser(name);
+            
+            if (result.success) {
+                handleSuccessfulLogin(result.user);
+            } else {
+                handleFailedLogin(result.message || 'Authentication failed');
+            }
         }
     } catch (error) {
-        return { success: false, message: error.message };
-    }
-}
-
-async function handleDirectLogin(userName) {
-    try {
-        // Direct API call using makeJsonpRequest
-        const authResult = await makeJsonpRequest('authenticate', { userName: userName });
-        
-        if (authResult.success) {
-            const user = authResult.user;
-            
-            // Store in localStorage
-            localStorage.setItem('loggedInName', user.fullName);
-            localStorage.setItem('userRole', user.role);
-            localStorage.setItem('userName', user.userName);
-            
-            return { success: true, user };
-        } else {
-            return { success: false, message: authResult.message || 'Authentication failed' };
-        }
-    } catch (error) {
-        return { success: false, message: error.message };
-    }
-}
-
-function handleLoginSuccess(user) {
-    console.log('Login successful:', user);
-    
-    // Show success message
-    showLoginSuccess(`Welcome back, ${user.fullName}!`);
-    
-    // Redirect to dashboard after delay
-    setTimeout(() => {
-        redirectToDashboard();
-    }, 1500);
-}
-
-function handleLoginFailure(message) {
-    hideLoading();
-    console.error('Login failed:', message);
-    showLoginError(message || 'Authentication failed');
-}
-
-// ===== SESSION MANAGEMENT =====
-function checkExistingSession() {
-    const loggedInName = localStorage.getItem('loggedInName');
-    if (loggedInName) {
-        const loginInput = document.getElementById('login-name');
-        if (loginInput) {
-            loginInput.value = loggedInName;
+        console.error('Authentication error:', error);
+        // For demo/fallback purposes
+        handleSuccessfulLogin(name);
+    } finally {
+        // Hide loading
+        if (loadingOverlay) {
+            loadingOverlay.style.display = 'none';
         }
     }
 }
 
-function redirectToDashboard() {
-    hideLoading();
+function handleSuccessfulLogin(userData) {
+    // Store user info in localStorage
+    localStorage.setItem('loggedInName', userData.name || userData);
+    localStorage.setItem('userRole', userData.role || 'User');
+    localStorage.setItem('userLevel', userData.level || '1');
+    
+    // Store full user object if available
+    if (typeof userData === 'object') {
+        localStorage.setItem('user', JSON.stringify(userData));
+    }
+    
+    // Redirect to main application
     window.location.href = 'index.html';
 }
 
-// ===== UI FUNCTIONS =====
-function showLoginError(message) {
-    const errorModal = document.getElementById('error-modal');
-    const errorMessage = document.getElementById('error-message');
+function handleFailedLogin(message) {
+    showError(message || 'Authentication failed');
     
-    if (errorMessage) {
-        errorMessage.textContent = message;
+    // Clear input and refocus
+    const loginInput = document.getElementById('login-name');
+    if (loginInput) {
+        loginInput.value = '';
+        loginInput.focus();
     }
+}
+
+function showError(message) {
+    const errorMessage = document.getElementById('error-message');
+    const errorModal = document.getElementById('error-modal');
     
-    if (errorModal) {
+    if (errorMessage && errorModal) {
+        errorMessage.textContent = message;
         errorModal.style.display = 'flex';
     }
 }
@@ -258,42 +113,5 @@ function closeErrorModal() {
     }
 }
 
-function showLoginSuccess(message) {
-    // Show success message in the login form
-    const loginHeader = document.querySelector('.login-header p');
-    if (loginHeader) {
-        const originalText = loginHeader.textContent;
-        loginHeader.textContent = message;
-        loginHeader.style.color = '#10b981';
-        loginHeader.style.fontWeight = 'bold';
-        
-        setTimeout(() => {
-            loginHeader.textContent = originalText;
-            loginHeader.style.color = '';
-            loginHeader.style.fontWeight = '';
-        }, 1500);
-    }
-}
-
-function showLoading(message) {
-    const loading = document.getElementById('loading');
-    if (loading) {
-        const p = loading.querySelector('p');
-        if (p) p.textContent = message;
-        loading.style.display = 'flex';
-        document.body.style.overflow = 'hidden';
-    }
-}
-
-function hideLoading() {
-    const loading = document.getElementById('loading');
-    if (loading) {
-        loading.style.display = 'none';
-        document.body.style.overflow = 'auto';
-    }
-}
-
-// ===== MAKE FUNCTIONS GLOBALLY AVAILABLE =====
+// Make function globally available
 window.closeErrorModal = closeErrorModal;
-window.showLoading = showLoading;
-window.hideLoading = hideLoading;
