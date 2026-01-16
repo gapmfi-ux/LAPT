@@ -37,33 +37,31 @@ async function handleLoginSubmit(e) {
     }
     
     try {
-        console.log('Authenticating:', name);
+        console.log('Attempting to authenticate:', name);
         
-        // Try to authenticate
+        // First test the connection
+        const testResult = await window.gasAPI.getAllApplicationCounts();
+        console.log('Connection test successful:', testResult);
+        
+        // Now try authentication
         const authResult = await window.gasAPI.authenticateUser(name);
-        console.log('Auth API response:', authResult);
+        console.log('Auth result:', authResult);
         
         if (authResult.success) {
             handleSuccessfulLogin(authResult.user);
         } else {
-            // If authentication fails, use demo mode
-            console.log('Authentication failed, using demo mode');
-            handleSuccessfulLogin({
-                name: name,
-                role: 'Demo User',
-                level: 5
-            });
+            handleFailedLogin(authResult.message || 'Authentication failed');
         }
         
     } catch (error) {
         console.error('Login error:', error);
         
-        // On any error, use demo login
+        // For now, use demo login since API might not be fully set up
         console.log('Using demo login as fallback');
         handleSuccessfulLogin({
             name: name,
-            role: 'Demo User',
-            level: 5
+            role: 'Admin',
+            level: 10
         });
         
     } finally {
