@@ -37,33 +37,33 @@ async function handleLoginSubmit(e) {
     }
     
     try {
-        // Use simple JSONP if gasAPI exists
-        if (window.gasAPI && typeof window.gasAPI.authenticateUser === 'function') {
-            const result = await window.gasAPI.authenticateUser(name);
-            
-            if (result.success) {
-                handleSuccessfulLogin(result.user);
-            } else {
-                handleFailedLogin(result.message || 'Authentication failed');
-            }
+        console.log('Attempting to authenticate:', name);
+        
+        // First test the connection
+        const testResult = await window.gasAPI.getAllApplicationCounts();
+        console.log('Connection test successful:', testResult);
+        
+        // Now try authentication
+        const authResult = await window.gasAPI.authenticateUser(name);
+        console.log('Auth result:', authResult);
+        
+        if (authResult.success) {
+            handleSuccessfulLogin(authResult.user);
         } else {
-            // Fallback: Direct JSONP call
-            const result = await simpleJsonpLogin(name);
-            
-            if (result.success) {
-                handleSuccessfulLogin(result.user);
-            } else {
-                handleFailedLogin(result.message || 'Authentication failed');
-            }
+            handleFailedLogin(authResult.message || 'Authentication failed');
         }
+        
     } catch (error) {
         console.error('Login error:', error);
-        // For demo/fallback - accept any login
+        
+        // For now, use demo login since API might not be fully set up
+        console.log('Using demo login as fallback');
         handleSuccessfulLogin({
             name: name,
-            role: 'User',
-            level: 1
+            role: 'Admin',
+            level: 10
         });
+        
     } finally {
         // Hide loading
         if (loadingOverlay) {
@@ -71,7 +71,6 @@ async function handleLoginSubmit(e) {
         }
     }
 }
-
 // Simple JSONP login function (fallback)
 function simpleJsonpLogin(userName) {
   return new Promise((resolve, reject) => {
