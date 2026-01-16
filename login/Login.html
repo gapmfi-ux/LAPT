@@ -10,7 +10,8 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
   
   <!-- CSS Files -->
-  <link rel="stylesheet" href="Main.css">
+  <link rel="stylesheet" href="../Main.css">
+  <link rel="stylesheet" href="Login.css">
   
   <!-- Favicon -->
   <link rel="icon" href="https://img.icons8.com/color/96/000000/loan.png" type="image/png">
@@ -59,126 +60,10 @@
     </div>
   </div>
 
-  <!-- ONLY load API loader - NO Main.js! -->
-  <script src="api/api-loader.js"></script>
+  <!-- API Loader - CORRECT PATH: From login folder to root api folder -->
+  <script src="../api/api-loader.js"></script>
   
-  <!-- Inline login script -->
-  <script>
-    // Initialize login page
-    document.addEventListener('DOMContentLoaded', async function() {
-      console.log('Login page loaded');
-      
-      // Hide loading immediately
-      document.getElementById('loading').style.display = 'none';
-      
-      // Set up form with temporary handler
-      const loginForm = document.getElementById('login-form');
-      const loginInput = document.getElementById('login-name');
-      const loginButton = document.getElementById('login-button');
-      
-      // Temporary handler that will be replaced
-      loginForm.addEventListener('submit', function(e) {
-        e.preventDefault();
-        alert('Loading authentication system... Please wait.');
-      });
-      
-      try {
-        // Load the authentication API
-        await ApiLoader.loadWithDependencies(['api-auth']);
-        console.log('Authentication API loaded');
-        
-        // Replace with real handler
-        loginForm.removeEventListener('submit', arguments.callee);
-        loginForm.addEventListener('submit', handleRealLogin);
-        
-        // Focus on input
-        loginInput.focus();
-        
-      } catch (error) {
-        console.error('Failed to load authentication:', error);
-        showError('Failed to load authentication system. Please refresh.');
-      }
-    });
-    
-    // Real login handler
-    async function handleRealLogin(e) {
-      e.preventDefault();
-      
-      const userNameInput = document.getElementById('login-name');
-      const userName = userNameInput.value.trim();
-      const loginButton = document.getElementById('login-button');
-      
-      if (!userName) {
-        showError('Please enter your name');
-        userNameInput.focus();
-        return;
-      }
-      
-      // Disable button and show loading
-      loginButton.disabled = true;
-      const originalHtml = loginButton.innerHTML;
-      loginButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Signing In...';
-      
-      try {
-        // Use authAPI for login
-        const result = await window.authAPI.login(userName);
-        
-        if (result.success) {
-          // Store for backward compatibility
-          localStorage.setItem('loggedInName', result.user.fullName);
-          localStorage.setItem('userRole', result.user.role);
-          localStorage.setItem('userName', result.user.userName);
-          
-          // Show success message
-          const loginHeader = document.querySelector('.login-header p');
-          const originalText = loginHeader.textContent;
-          loginHeader.textContent = `Welcome back, ${result.user.fullName}!`;
-          loginHeader.style.color = '#10b981';
-          loginHeader.style.fontWeight = 'bold';
-          
-          // Redirect after delay
-          setTimeout(() => {
-            window.location.href = 'index.html';
-          }, 1500);
-          
-        } else {
-          // Restore button
-          loginButton.disabled = false;
-          loginButton.innerHTML = originalHtml;
-          showError(result.message || 'Authentication failed');
-        }
-        
-      } catch (error) {
-        // Restore button
-        loginButton.disabled = false;
-        loginButton.innerHTML = originalHtml;
-        console.error('Login error:', error);
-        showError(`Login failed: ${error.message}`);
-      }
-    }
-    
-    function showError(message) {
-      const errorMessage = document.getElementById('error-message');
-      const errorModal = document.getElementById('error-modal');
-      
-      if (errorMessage) {
-        errorMessage.textContent = message;
-      }
-      
-      if (errorModal) {
-        errorModal.style.display = 'flex';
-      }
-    }
-    
-    function closeErrorModal() {
-      const errorModal = document.getElementById('error-modal');
-      if (errorModal) {
-        errorModal.style.display = 'none';
-      }
-    }
-    
-    // Make functions global
-    window.closeErrorModal = closeErrorModal;
-  </script>
+  <!-- Login JavaScript -->
+  <script src="Login.js"></script>
 </body>
 </html>
