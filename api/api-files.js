@@ -13,7 +13,7 @@ class FilesAPI {
 
   async uploadApplicationFile(fileData, appNumber, appFolderId, docType) {
     return this.api.request('uploadApplicationFile', {
-      fileData: fileData,
+      fileData: JSON.stringify(fileData),
       appNumber: appNumber,
       appFolderId: appFolderId,
       docType: docType
@@ -22,7 +22,7 @@ class FilesAPI {
 
   async updateApplicationFile(fileData, appNumber, docType, userName) {
     return this.api.request('updateApplicationFile', {
-      fileData: fileData,
+      fileData: JSON.stringify(fileData),
       appNumber: appNumber,
       docType: docType,
       userName: userName
