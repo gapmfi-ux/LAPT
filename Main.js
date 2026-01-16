@@ -10,22 +10,29 @@ let currentViewingAppData = null;
 // ===== API INITIALIZATION =====
 async function initializeAPI() {
     try {
-        // Test API connection
-        console.log('Testing API connection...');
+        // Load all API modules
+        await window.ApiLoader.loadAll();
+        console.log('API modules loaded successfully');
+        
+        // Wait for APIs to be ready
+        await new Promise(resolve => {
+            const checkInterval = setInterval(() => {
+                if (window.apiService && window.gasAPI) {
+                    clearInterval(checkInterval);
+                    resolve();
+                }
+            }, 100);
+        });
+        
+        // Test connection
         const testResult = await window.apiService.testConnection();
         console.log('API Connection Test:', testResult);
-        
-        if (!testResult.connected) {
-            console.warn('API connection issues detected - some features may be limited');
-            // Show warning but don't block the app
-            showWarning('API connection unstable. Some features may be limited.');
-        }
         
         return true;
     } catch (error) {
         console.error('Failed to initialize API:', error);
-        showErrorModal(`API initialization failed: ${error.message}. Using limited functionality.`);
-        return true; // Still return true to allow app to continue
+        // Continue anyway - APIs will be in offline mode
+        return true;
     }
 }
 
