@@ -1,105 +1,107 @@
-// Simple JSONP API Client for Google Apps Script
+// Simple JSONP API Client for Loan Application Tracker
 const GAS_CONFIG = {
   WEB_APP_URL: 'https://script.google.com/macros/s/AKfycbylE1YhW-h5CddXCSCDdfj2co-JYOg8PdBm5ZAj49DqLUOId1bYeoBZGRruQcFuNzaMZg/exec',
   APP_NAME: 'Loan Application Tracker',
   VERSION: '1.0.0'
 };
 
-// Simple JSONP request function
-function jsonpRequest(action, data = {}) {
+// Simple JSONP request
+function makeJsonpRequest(action, params = {}) {
   return new Promise((resolve, reject) => {
-    // Create unique callback name
-    const callbackName = 'jsonp_callback_' + Math.round(100000 * Math.random());
+    const callbackName = 'jsonp_cb_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+    
+    // Build URL
+    let url = GAS_CONFIG.WEB_APP_URL + '?action=' + encodeURIComponent(action);
+    url += '&callback=' + callbackName;
+    
+    // Add parameters
+    Object.keys(params).forEach(key => {
+      if (params[key] !== undefined && params[key] !== null) {
+        url += '&' + encodeURIComponent(key) + '=' + encodeURIComponent(params[key]);
+      }
+    });
     
     // Create script element
     const script = document.createElement('script');
     
-    // Build URL with parameters
-    let url = GAS_CONFIG.WEB_APP_URL + '?action=' + encodeURIComponent(action);
-    url += '&callback=' + callbackName;
-    
-    // Add data parameters
-    if (data && typeof data === 'object') {
-      for (const key in data) {
-        if (data.hasOwnProperty(key)) {
-          url += '&' + encodeURIComponent(key) + '=' + encodeURIComponent(data[key]);
-        }
+    // Define callback
+    window[callbackName] = function(data) {
+      // Cleanup
+      if (script.parentNode) {
+        document.body.removeChild(script);
       }
-    }
-    
-    // Add timestamp to prevent caching
-    url += '&_=' + Date.now();
-    
-    // Define callback function
-    window[callbackName] = function(response) {
-      // Clean up
       delete window[callbackName];
-      document.body.removeChild(script);
       
       // Handle response
-      if (response && response.success !== false) {
-        resolve(response);
+      if (data && (data.success !== false)) {
+        resolve(data);
       } else {
-        const errorMsg = response ? (response.message || response.error || 'Request failed') : 'No response';
+        const errorMsg = data ? (data.message || data.error || 'Request failed') : 'No response';
         reject(new Error(errorMsg));
       }
     };
     
     // Error handling
     script.onerror = function() {
+      if (script.parentNode) {
+        document.body.removeChild(script);
+      }
       delete window[callbackName];
-      document.body.removeChild(script);
-      reject(new Error('Network error - failed to load script'));
+      reject(new Error('Failed to load script'));
     };
     
-    // Set script source and add to page
+    // Add to page
     script.src = url;
     document.body.appendChild(script);
+    
+    // Timeout after 10 seconds
+    setTimeout(() => {
+      if (window[callbackName]) {
+        if (script.parentNode) {
+          document.body.removeChild(script);
+        }
+        delete window[callbackName];
+        reject(new Error('Request timeout'));
+      }
+    }, 10000);
   });
 }
 
 // API Methods
 const gasAPI = {
-  // Authentication
   authenticateUser: function(userName) {
-    return jsonpRequest('authenticate', { userName: userName });
+    return makeJsonpRequest('authenticate', { userName: userName });
   },
   
-  // Application data
   getNewApplications: function() {
-    return jsonpRequest('getNewApplications');
+    return makeJsonpRequest('getNewApplications');
   },
   
   getPendingApplications: function() {
-    return jsonpRequest('getPendingApplications');
+    return makeJsonpRequest('getPendingApplications');
   },
   
   getPendingApprovalApplications: function() {
-    return jsonpRequest('getPendingApprovalApplications');
+    return makeJsonpRequest('getPendingApprovalApplications');
   },
   
   getApprovedApplications: function() {
-    return jsonpRequest('getApprovedApplications');
+    return makeJsonpRequest('getApprovedApplications');
   },
   
   getAllApplicationCounts: function() {
-    return jsonpRequest('getAllApplicationCounts');
+    return makeJsonpRequest('getAllApplicationCounts');
   },
   
-  // User management
   getAllUsers: function() {
-    return jsonpRequest('getAllUsers');
+    return makeJsonpRequest('getAllUsers');
   },
   
-  addUser: function(userData) {
-    // Note: For complex data, we need to stringify
-    return jsonpRequest('addUser', { 
-      data: JSON.stringify(userData) 
-    });
-  },
-  
-  deleteUser: function(userName) {
-    return jsonpRequest('deleteUser', { userName: userName });
+  // Test if API is working
+  testConnection: function() {
+    return makeJsonpRequest('getAllApplicationCounts')
+      .then(() => ({ connected: true, message: 'API is working' }))
+      .catch(error => ({ connected: false, message: error.message }));
   }
 };
 
