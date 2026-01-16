@@ -9,7 +9,14 @@ class UsersAPI {
   }
 
   async addUser(userData) {
-    return this.api.request('addUser', userData);
+    // Your GAS function expects {name, level, role}
+    return this.api.request('addUser', { 
+      userData: JSON.stringify({
+        name: userData.name,
+        level: userData.level,
+        role: userData.role
+      })
+    });
   }
 
   async deleteUser(userName) {
