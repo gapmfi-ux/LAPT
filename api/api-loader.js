@@ -5,6 +5,8 @@ class SimpleAPILoader {
       'api/api-core.js',
       'api/api-auth.js',
       'api/api-applications.js',
+      'api/api-new-application.js',    // ADDED
+      'api/api-view-application.js',    // ADDED
       'api/api-users.js',
       'api/api-files.js',
       'api/api-workflow.js',
