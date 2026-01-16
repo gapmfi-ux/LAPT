@@ -2,7 +2,7 @@
 document.addEventListener('DOMContentLoaded', function() {
     console.log('Login page loaded');
     
-    // Hide loading overlay immediately
+    // Hide loading overlay
     const loadingOverlay = document.getElementById('loading');
     if (loadingOverlay) {
         loadingOverlay.style.display = 'none';
@@ -37,20 +37,18 @@ async function handleLoginSubmit(e) {
     }
     
     try {
-        // Check if gasAPI exists (it might not be loaded yet)
-        if (typeof gasAPI === 'undefined') {
-            // Fallback to direct API call
-            const response = await fetch(`${getConfig().WEB_APP_URL}?action=authenticate&userName=${encodeURIComponent(name)}`);
-            const data = await response.json();
+        // Use simple JSONP if gasAPI exists
+        if (window.gasAPI && typeof window.gasAPI.authenticateUser === 'function') {
+            const result = await window.gasAPI.authenticateUser(name);
             
-            if (data.success) {
-                handleSuccessfulLogin(data.user);
+            if (result.success) {
+                handleSuccessfulLogin(result.user);
             } else {
-                handleFailedLogin(data.message || 'Authentication failed');
+                handleFailedLogin(result.message || 'Authentication failed');
             }
         } else {
-            // Use gasAPI if available
-            const result = await gasAPI.authenticateUser(name);
+            // Fallback: Direct JSONP call
+            const result = await simpleJsonpLogin(name);
             
             if (result.success) {
                 handleSuccessfulLogin(result.user);
@@ -59,9 +57,13 @@ async function handleLoginSubmit(e) {
             }
         }
     } catch (error) {
-        console.error('Authentication error:', error);
-        // For demo/fallback purposes
-        handleSuccessfulLogin(name);
+        console.error('Login error:', error);
+        // For demo/fallback - accept any login
+        handleSuccessfulLogin({
+            name: name,
+            role: 'User',
+            level: 1
+        });
     } finally {
         // Hide loading
         if (loadingOverlay) {
@@ -70,25 +72,47 @@ async function handleLoginSubmit(e) {
     }
 }
 
+// Simple JSONP login function (fallback)
+function simpleJsonpLogin(userName) {
+  return new Promise((resolve, reject) => {
+    const callbackName = 'login_callback_' + Math.round(100000 * Math.random());
+    const script = document.createElement('script');
+    
+    const url = `https://script.google.com/macros/s/AKfycbylE1YhW-h5CddXCSCDdfj2co-JYOg8PdBm5ZAj49DqLUOId1bYeoBZGRruQcFuNzaMZg/exec?action=authenticate&userName=${encodeURIComponent(userName)}&callback=${callbackName}`;
+    
+    window[callbackName] = function(response) {
+      delete window[callbackName];
+      document.body.removeChild(script);
+      resolve(response);
+    };
+    
+    script.onerror = function() {
+      delete window[callbackName];
+      document.body.removeChild(script);
+      reject(new Error('Network error'));
+    };
+    
+    script.src = url;
+    document.body.appendChild(script);
+  });
+}
+
 function handleSuccessfulLogin(userData) {
-    // Store user info in localStorage
+    // Store user info
     localStorage.setItem('loggedInName', userData.name || userData);
     localStorage.setItem('userRole', userData.role || 'User');
     localStorage.setItem('userLevel', userData.level || '1');
     
-    // Store full user object if available
     if (typeof userData === 'object') {
         localStorage.setItem('user', JSON.stringify(userData));
     }
     
-    // Redirect to main application
+    // Redirect to main app
     window.location.href = 'index.html';
 }
 
 function handleFailedLogin(message) {
     showError(message || 'Authentication failed');
-    
-    // Clear input and refocus
     const loginInput = document.getElementById('login-name');
     if (loginInput) {
         loginInput.value = '';
@@ -99,7 +123,6 @@ function handleFailedLogin(message) {
 function showError(message) {
     const errorMessage = document.getElementById('error-message');
     const errorModal = document.getElementById('error-modal');
-    
     if (errorMessage && errorModal) {
         errorMessage.textContent = message;
         errorModal.style.display = 'flex';
@@ -113,5 +136,4 @@ function closeErrorModal() {
     }
 }
 
-// Make function globally available
 window.closeErrorModal = closeErrorModal;
