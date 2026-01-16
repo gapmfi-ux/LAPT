@@ -1,22 +1,27 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
 <head>
+  <meta charset="utf-8" />
   <base target="_top">
-  <title>Loan Application Dashboard</title>
+  <title>Loan Application Tracker</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#2563eb">
-  
+
   <!-- Font Awesome -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-  
-  <!-- CSS Files -->
+
+  <!-- Core CSS -->
   <link rel="stylesheet" href="Main.css">
-  
-  <!-- PWA Manifest (optional) -->
-  <link rel="manifest" href="manifest.json">
-  
-  <!-- Favicon -->
-  <link rel="icon" href="https://img.icons8.com/color/96/000000/loan.png" type="image/png">
+
+  <!-- New application modal CSS -->
+  <link rel="stylesheet" href="new-application/newApps.css">
+
+  <!-- View application modal CSS -->
+  <link rel="stylesheet" href="view-application/viewApps.css">
+
+  <!-- PWA manifest -->
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="https://img.icons8.com/color/96/000000/loan.png" type="image/png" />
 </head>
 <body class="app-page">
   <!-- Loading Overlay -->
@@ -43,18 +48,6 @@
     </div>
   </div>
 
-  <!-- Confirmation Modal -->
-  <div id="confirmation-modal" class="modal-overlay">
-    <div class="modal-message">
-      <i class="fas fa-question-circle confirmation-icon"></i>
-      <div id="confirmation-message"></div>
-      <div class="modal-actions">
-        <button onclick="closeConfirmationModal(false)" class="btn-secondary">Cancel</button>
-        <button onclick="closeConfirmationModal(true)" class="btn-primary">Confirm</button>
-      </div>
-    </div>
-  </div>
-
   <!-- Main App Container -->
   <div id="app-container" class="hidden">
     <!-- Top Menu -->
@@ -78,7 +71,7 @@
         </button>
       </div>
     </div>
-    
+
     <div class="container">
       <!-- Side Menu -->
       <div class="side-menu">
@@ -97,6 +90,7 @@
             <i class="fas fa-check-circle"></i> Approved <span class="badge" id="approved-count">0</span>
           </button>
         </div>
+
         <div class="menu-section">
           <div class="menu-title"><i class="fas fa-users"></i> User Management</div>
           <button class="menu-btn" onclick="showSection('add-user')">
@@ -107,46 +101,46 @@
           </button>
         </div>
       </div>
-      
+
       <!-- Main Content Area -->
       <div class="main-content" id="main-content">
-        <!-- Content will be loaded dynamically here -->
-        <div class="welcome-message">
-          <div class="welcome-card">
-            <i class="fas fa-layer-group welcome-icon"></i>
-            <h1>Welcome to Loan Application Tracker</h1>
-            <p>Select a section from the menu to get started</p>
-            <div class="welcome-stats">
-              <div class="stat-card">
-                <i class="fas fa-file-alt stat-icon"></i>
-                <div class="stat-number" id="welcome-new-count">0</div>
-                <div class="stat-label">New Applications</div>
-              </div>
-              <div class="stat-card">
-                <i class="fas fa-clock stat-icon"></i>
-                <div class="stat-number" id="welcome-pending-count">0</div>
-                <div class="stat-label">Pending</div>
-              </div>
-              <div class="stat-card">
-                <i class="fas fa-hourglass-half stat-icon"></i>
-                <div class="stat-number" id="welcome-pending-approvals-count">0</div>
-                <div class="stat-label">Pending Approvals</div>
-              </div>
-              <div class="stat-card">
-                <i class="fas fa-check-circle stat-icon"></i>
-                <div class="stat-number" id="welcome-approved-count">0</div>
-                <div class="stat-label">Approved</div>
-              </div>
-            </div>
-          </div>
+        <!-- Content will be loaded dynamically (tables, welcome, etc.) -->
+        <div id="new" class="content-section">
+          <!-- content is injected by applications/AppsTables.html via Main.js loadSectionContent -->
         </div>
+        <div id="pending" class="content-section"></div>
+        <div id="pending-approvals" class="content-section"></div>
+        <div id="approved" class="content-section"></div>
+
+        <!-- Application Details (will be replaced by modal viewing) -->
+        <div id="application-details" class="content-section"></div>
+
+        <!-- User Management sections -->
+        <div id="add-user" class="content-section"></div>
+        <div id="users-list" class="content-section"></div>
       </div>
     </div>
   </div>
 
-<!-- Load APIs -->
-<script src="api-loader.js"></script>
-<script src="Main.js"></script>
+  <!-- New Application Modal -->
+  <!-- new-application/newApps.html contains the modal markup; it will be loaded and initialized by Main.js -->
+  <div id="newApplicationContainer"><!-- loaded dynamically --></div>
+
+  <!-- View Application Modal -->
+  <div id="viewApplicationContainer"><!-- loaded dynamically --></div>
+
+  <!-- Scripts -->
+  <script src="shared/config.js"></script>
+  <script src="api/api-core.js"></script>
+  <script src="api/api-auth.js"></script>
+  <script src="api/api-applications.js"></script>
+  <script src="api/api-users.js"></script>
+  <script src="api/api-files.js"></script>
+  <script src="api/api-workflow.js"></script>
+  <script src="api/api-utils.js"></script>
+  <script src="api/main-api.js"></script>
+
+  <script src="Main.js"></script>
 
 </body>
 </html>
