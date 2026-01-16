@@ -44,6 +44,19 @@ class ApplicationsAPI {
     return this.api.request('submitApplication', applicationData);
   }
 
+
+async getApplicationDetails(appNumber, userName) {  // Note: takes userName parameter
+  return this.api.request('getApplicationDetails', { appNumber, userName });
+}
+
+async saveApplicationDraft(applicationData, userName) {
+  return this.api.request('saveApplicationDraft', { ...applicationData, userName });
+}
+
+async submitApplication(applicationData, userName) {
+  return this.api.request('submitApplication', { ...applicationData, userName });
+}
+
   async revertApplicationStage(appNumber, targetStage, userName) {
     return this.api.request('revertApplicationStage', {
       appNumber: appNumber,
