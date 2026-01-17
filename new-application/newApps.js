@@ -1,1074 +1,426 @@
-// newApps.js — dual API support (browser API objects or google.script.run)
-// Full file: new application modal logic, form building, save/submit actions.
+// Applications Tables JS (fixed - resilient API calls & missing handler added)
+let currentSection = 'new';
+let applicationsData = {
+    new: [],
+    pending: [],
+    pendingApprovals: [],
+    approved: []
+};
 
-console.log('newApps.js loaded (dual API support)');
+function initializeApplicationsSection(sectionId = 'new') {
+    currentSection = sectionId;
 
-// Generic call helper (shared pattern with viewApps)
-function callApiMethod(methodName, params = {}) {
-  return new Promise((resolve, reject) => {
-    const apiClient = window.newAppAPI || window.appsAPI || window.gasAPI || window.apiService || null;
+    // Show appropriate section
+    showSection(sectionId);
 
-    if (apiClient && typeof apiClient[methodName] === 'function') {
-      try {
-        const args = params._args && Array.isArray(params._args) ? params._args : [];
-        const res = apiClient[methodName](...args);
-        if (res && typeof res.then === 'function') {
-          res.then(resolve).catch(reject);
-        } else {
-          resolve(res);
-        }
-        return;
-      } catch (err) {
-        reject(err);
-        return;
-      }
+    // Load applications data
+    loadApplicationsData(sectionId);
+
+    // Setup event listeners
+    setupEventListeners();
+}
+
+function showSection(sectionId) {
+    currentSection = sectionId;
+
+    // Hide all sections
+    const sections = document.querySelectorAll('.content-section');
+    sections.forEach(section => {
+        section.classList.remove('active');
+    });
+
+    // Show selected section
+    const activeSection = document.getElementById(sectionId);
+    if (activeSection) {
+        activeSection.classList.add('active');
     }
 
-    if (apiClient && typeof apiClient.request === 'function') {
-      try {
-        const passed = Object.assign({}, params);
-        delete passed._args;
-        apiClient.request(methodName, passed).then(resolve).catch(reject);
-      } catch (err) {
-        reject(err);
-      }
-      return;
+    // Load data for the section
+    loadApplicationsData(sectionId);
+}
+
+async function loadApplicationsData(sectionId) {
+    let tableId;
+
+    switch(sectionId) {
+        case 'new':
+            tableId = 'new-list';
+            break;
+        case 'pending':
+            tableId = 'pending-list';
+            break;
+        case 'pending-approvals':
+            tableId = 'pending-approvals-list';
+            break;
+        case 'approved':
+            tableId = 'approved-list';
+            break;
+        default:
+            return;
     }
 
-    if (window.google && google.script && google.script.run) {
-      try {
-        const args = params._args && Array.isArray(params._args) ? params._args : [];
-        google.script.run
-          .withSuccessHandler(function(response) {
-            resolve(response);
-          })
-          .withFailureHandler(function(error) {
-            reject(error);
-          })[methodName](...args);
-        return;
-      } catch (err) {
-        reject(err);
-        return;
-      }
-    }
+    const tbody = document.getElementById(tableId);
+    if (!tbody) return;
 
-    reject(new Error('No API client available (newApps)'));
-  });
-}
+    // Show loading state
+    tbody.innerHTML = `
+        <tr>
+            <td colspan="5" class="loading">
+                <i class="fas fa-spinner fa-spin"></i> Loading applications...
+            </td>
+        </tr>
+    `;
 
-/* ---- State and helpers ---- */
-console.log('newApplicationJS loaded');
-
-let additionalDocumentCount = 2;
-
-function safeValue(id, fallback = '') {
-  const el = document.getElementById(id);
-  return el ? el.value : fallback;
-}
-function safeText(id, fallback = '') {
-  const el = document.getElementById(id);
-  return el ? el.textContent : fallback;
-}
-function safeSetText(id, text) {
-  const el = document.getElementById(id);
-  if (el) el.textContent = text;
-}
-
-/* ---- Helper: ensure modal HTML is in DOM (fetch + inject if missing) ---- */
-function ensureModalInDOM() {
-  return new Promise((resolve, reject) => {
-    const existing = document.getElementById('newApplicationModal');
-    if (existing) {
-      return resolve(true);
-    }
-
-    // Fetch the modal HTML and inject it; also execute inline scripts found within
-    const url = 'new-application/newApps.html';
-    console.log('newApps.js: #newApplicationModal not found, fetching', url);
-
-    fetch(url, { cache: 'no-store' })
-      .then(response => {
-        if (!response.ok) throw new Error(`Failed to load ${url}: ${response.status} ${response.statusText}`);
-        return response.text();
-      })
-      .then(htmlText => {
-        try {
-          // Parse HTML so we can extract scripts safely
-          const parser = new DOMParser();
-          const doc = parser.parseFromString(htmlText, 'text/html');
-
-          // Move body children into a container and append to document.body
-          const container = document.createElement('div');
-          // Copy over non-script nodes
-          Array.from(doc.body.childNodes).forEach(node => {
-            if (node.tagName && node.tagName.toLowerCase() === 'script') {
-              // skip here, handle scripts separately
-            } else {
-              container.appendChild(document.importNode(node, true));
-            }
-          });
-          document.body.appendChild(container);
-
-          // Now execute inline scripts from the fetched HTML (in order)
-          const scripts = Array.from(doc.querySelectorAll('script'));
-          scripts.forEach(s => {
-            const newScript = document.createElement('script');
-            if (s.src) {
-              // External script: set src to load it
-              newScript.src = s.src;
-              // preserve async/eager loading order by using onload chaining if necessary
-              newScript.async = false;
-              document.body.appendChild(newScript);
-            } else {
-              // Inline script: copy textContent to a new script element so it executes
-              newScript.textContent = s.textContent;
-              document.body.appendChild(newScript);
-            }
-          });
-
-          // Slight delay to allow appended external scripts to execute
-          setTimeout(() => {
-            const nowExists = document.getElementById('newApplicationModal');
-            if (nowExists) {
-              console.log('newApps.js: injected newApplicationModal into DOM');
-              resolve(true);
-            } else {
-              // If the HTML didn't include the element, that's an error
-              reject(new Error('Injected HTML did not create #newApplicationModal'));
-            }
-          }, 50);
-        } catch (err) {
-          reject(err);
-        }
-      })
-      .catch(err => {
-        console.error('Error injecting new application modal HTML:', err);
-        reject(err);
-      });
-  });
-}
-
-/* ---- Reset modal ---- */
-function resetNewApplicationModal() {
-  const inputs = document.querySelectorAll('#newApplicationModal input, #newApplicationModal textarea');
-  inputs.forEach(input => {
     try {
-      if (input.type === 'file') input.value = '';
-      else if (input.type === 'checkbox' || input.type === 'radio') input.checked = false;
-      else input.value = '';
-    } catch (e) {}
-  });
+        let result;
+        const apiClient = window.appsAPI || window.gasAPI || window.newAppAPI || window.viewAppAPI || window.apiService || null;
 
-  ['bank-statement-name','pay-slip-name','undertaking-name','loan-statement-name'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) {
-      el.textContent = 'No file chosen';
-      el.style.color = '';
-    }
-  });
-
-  const lhTable = document.getElementById('loanHistoryTable');
-  if (lhTable && lhTable.querySelector('tbody')) lhTable.querySelector('tbody').innerHTML = '';
-
-  const pbTable = document.getElementById('personalBudgetTable');
-  if (pbTable && pbTable.querySelector('tbody')) pbTable.querySelector('tbody').innerHTML = '';
-
-  additionalDocumentCount = 2;
-  calculateTotals();
-  calculateBudget();
-}
-
-/* ---- Show / New application modal ---- */
-function showNewApplicationModal(existingAppNumber = null) {
-  console.log('showNewApplicationModal called with:', existingAppNumber);
-
-  // If modal not in DOM, ensure it's injected first
-  ensureModalInDOM()
-    .then(() => {
-      // proceed after ensuring modal exists
-      _showNewApplicationModalCore(existingAppNumber);
-    })
-    .catch(err => {
-      console.warn('getNewApplicationContext: failed to inject modal HTML:', err);
-      // If injection failed, still attempt to call API (previous behavior)
-      if (existingAppNumber) {
-        loadExistingApplication(existingAppNumber);
-      } else {
-        if (typeof showLoading === 'function') showLoading('Preparing application...');
-        callApiMethod('getNewApplicationContext', {})
-          .then(ctx => {
-            if (typeof hideLoading === 'function') hideLoading();
-            let appCtx = ctx;
-            if (ctx && ctx.success && ctx.data) appCtx = ctx.data;
-            window.currentAppNumber = appCtx?.appNumber || appCtx;
-            window.currentAppFolderId = appCtx?.folderId || '';
-            alert('Could not display the application form. The new application context has been created: ' + (window.currentAppNumber || ''));
-          })
-          .catch(e => {
-            if (typeof hideLoading === 'function') hideLoading();
-            console.error('Fallback getNewApplicationContext failed:', e);
-            alert('Could not start a new application: ' + (e.message || e));
-          });
-      }
-    });
-}
-
-function _showNewApplicationModalCore(existingAppNumber) {
-  if (existingAppNumber) {
-    loadExistingApplication(existingAppNumber);
-    return;
-  }
-
-  if (typeof showLoading === 'function') showLoading('Preparing application...');
-
-  callApiMethod('getNewApplicationContext', {})
-    .then(ctx => {
-      if (typeof hideLoading === 'function') hideLoading();
-
-      let appCtx = ctx;
-      if (ctx && ctx.success && ctx.data) appCtx = ctx.data;
-
-      window.currentAppNumber = appCtx?.appNumber || appCtx;
-      window.currentAppFolderId = appCtx?.folderId || '';
-
-      const appNumberEl = document.getElementById('app-number');
-      if (appNumberEl) appNumberEl.textContent = window.currentAppNumber || '';
-
-      const modal = document.getElementById('newApplicationModal');
-      if (modal) {
-        console.log('Modal found, showing it...');
-
-        // Use CSS class system instead of inline style
-        modal.classList.add('active');
-        modal.style.display = 'block';
-
-        // Force reflow and opacity transition
-        setTimeout(() => {
-          modal.style.opacity = '1';
-        }, 10);
-
-        resetNewApplicationModal();
-        const requestedTab = sessionStorage.getItem('editTab');
-        if (requestedTab) {
-          openTab(requestedTab);
-          sessionStorage.removeItem('editTab');
+        // Preferred direct method calls if available
+        if (apiClient) {
+            try {
+                if (sectionId === 'new' && typeof apiClient.getNewApplications === 'function') {
+                    result = await apiClient.getNewApplications();
+                } else if (sectionId === 'pending' && typeof apiClient.getPendingApplications === 'function') {
+                    result = await apiClient.getPendingApplications();
+                } else if (sectionId === 'pending-approvals' && typeof apiClient.getPendingApprovalApplications === 'function') {
+                    result = await apiClient.getPendingApprovalApplications();
+                } else if (sectionId === 'approved' && typeof apiClient.getApprovedApplications === 'function') {
+                    result = await apiClient.getApprovedApplications();
+                } else if (typeof apiClient.request === 'function') {
+                    // Fallback to generic request(action)
+                    const actionMap = {
+                        new: 'getNewApplications',
+                        pending: 'getPendingApplications',
+                        'pending-approvals': 'getPendingApprovalApplications',
+                        approved: 'getApprovedApplications'
+                    };
+                    const action = actionMap[sectionId];
+                    result = await apiClient.request(action);
+                } else {
+                    result = [];
+                }
+            } catch (err) {
+                console.warn('API call failed:', err);
+                result = [];
+            }
         } else {
-          openTab('tab1');
+            // No API available
+            console.warn('No API client available - returning empty list for', sectionId);
+            result = [];
         }
 
-        // Call initialization if available
-        if (window.newApplicationModalInit) {
-          try { window.newApplicationModalInit(); } catch (e) { console.warn(e); }
-        }
-        if (typeof initNewApplicationScripts === 'function') {
-          try { initNewApplicationScripts(); } catch (e) { console.warn(e); }
-        }
-      } else {
-        console.error('Modal still not found after injection! Looking for #newApplicationModal');
-      }
-    })
-    .catch(err => {
-      if (typeof hideLoading === 'function') hideLoading();
-      console.warn('getNewApplicationContext failed via API:', err);
-      alert('Could not start a new application: ' + (err.message || err));
-    });
-}
-
-/* ---- Load existing application for editing ---- */
-function loadExistingApplication(appNumber) {
-  console.log('Loading existing application:', appNumber);
-
-  // Ensure modal is in DOM before populating
-  ensureModalInDOM()
-    .then(() => {
-      _loadExistingApplicationCore(appNumber);
-    })
-    .catch(err => {
-      console.warn('Failed to ensure modal DOM for editing:', err);
-      // fallback attempt anyway
-      _loadExistingApplicationCore(appNumber);
-    });
-}
-
-function _loadExistingApplicationCore(appNumber) {
-  if (typeof showLoading === 'function') showLoading('Loading application...');
-
-  const userName = localStorage.getItem('loggedInName') || '';
-
-  callApiMethod('getApplicationDetails', { _args: [appNumber, userName] })
-    .then(response => {
-      if (typeof hideLoading === 'function') hideLoading();
-
-      let payload = response;
-      if (response && response.success && response.data) payload = response.data;
-      else if (response && response.data) payload = response.data;
-
-      if (payload) {
-        const appData = payload;
-        console.log('Loaded application data:', appData);
-
-        window.currentAppNumber = appNumber;
-        window.currentAppFolderId = appData.folderId || '';
-
-        const appNumberEl = document.getElementById('app-number');
-        if (appNumberEl) appNumberEl.textContent = appNumber;
-
-        populateFormWithData(appData);
-
-        const modal = document.getElementById('newApplicationModal');
-        if (modal) {
-          console.log('Modal found for editing, showing it...');
-
-          // Use CSS class system
-          modal.classList.add('active');
-          modal.style.display = 'block';
-          setTimeout(() => {
-            modal.style.opacity = '1';
-          }, 10);
-
-          const requestedTab = sessionStorage.getItem('editTab');
-          if (requestedTab) {
-            openTab(requestedTab);
-            sessionStorage.removeItem('editTab');
-          } else {
-            openTab('tab1');
-          }
-
-          if (window.newApplicationModalInit) {
-            try { window.newApplicationModalInit(); } catch (e) { console.warn(e); }
-          }
-          if (typeof initNewApplicationScripts === 'function') {
-            try { initNewApplicationScripts(); } catch (e) { console.warn(e); }
-          }
+        // Normalize result to array of applications
+        let applications = [];
+        if (Array.isArray(result)) {
+            applications = result;
+        } else if (result && result.success && Array.isArray(result.data)) {
+            applications = result.data;
+        } else if (result && Array.isArray(result.data)) {
+            applications = result.data;
+        } else if (result && typeof result === 'object' && Object.keys(result).length && 'appNumber' in result) {
+            // single object returned
+            applications = [result];
+        } else {
+            applications = [];
         }
 
-        calculateTotals();
-        calculateBudget();
-      } else {
-        alert('Failed to load application: No data returned.');
-      }
-    })
-    .catch(error => {
-      if (typeof hideLoading === 'function') hideLoading();
-      console.error('Error loading application:', error);
-      alert('Error loading application: ' + (error?.message || error));
-    });
-}
+        // Store data
+        applicationsData[sectionId] = applications;
 
-/* ---- Modal close / tab navigation ---- */
-function closeModal() {
-  console.log('Closing modal...');
-  const modal = document.getElementById('newApplicationModal');
-  if (modal) {
-    // Remove active class and fade out
-    modal.classList.remove('active');
-    modal.style.opacity = '0';
+        // Render table
+        renderApplicationsTable(tableId, applications);
 
-    // Wait for opacity transition before hiding completely
-    setTimeout(() => {
-      modal.style.display = 'none';
-      resetNewApplicationModal();
-      window.currentAppNumber = '';
-      const appNumberEl = document.getElementById('app-number');
-      if (appNumberEl) appNumberEl.textContent = '';
-    }, 250);
-  }
-}
-
-function openTab(tabName) {
-  const tabs = document.querySelectorAll('#newApplicationModal .tab-content');
-  tabs.forEach(tab => tab.classList.remove('active'));
-  const btns = document.querySelectorAll('#newApplicationModal .tab-button');
-  btns.forEach(btn => btn.classList.remove('active'));
-
-  const targetTab = document.getElementById(tabName);
-  if (targetTab) targetTab.classList.add('active');
-
-  const btn = Array.from(document.querySelectorAll('#newApplicationModal .tab-button')).find(b => {
-    const onclick = b.getAttribute('onclick') || '';
-    return onclick.includes(tabName);
-  });
-  if (btn) btn.classList.add('active');
-
-  if (tabName === 'tab5') populateReview();
-}
-
-/* ---- Loan History dynamic table ---- */
-function addLoanHistoryRow() {
-  const tbody = document.getElementById('loanHistoryTable')?.querySelector('tbody');
-  if (!tbody) return;
-  const row = document.createElement('tr');
-  row.innerHTML = `
-    <td><input type="date" required></td>
-    <td><input type="text" placeholder="e.g., 12 months"></td>
-    <td><input type="number" step="0.01" required></td>
-    <td><input type="date" required></td>
-    <td><input type="text" placeholder="Comments"></td>
-    <td><button type="button" class="delete-button" onclick="deleteRow(this)">Delete</button></td>
-  `;
-  tbody.appendChild(row);
-}
-
-function deleteRow(btn) {
-  const row = btn.closest('tr');
-  if (!row) return;
-  const parentTable = row.closest('table');
-  const isBudget = parentTable && parentTable.id === 'personalBudgetTable';
-  row.remove();
-  if (isBudget) calculateBudget();
-}
-
-/* ---- Personal Budget ---- */
-function addIncomeRow() { addBudgetRow('Income'); }
-function addExpenseRow() { addBudgetRow('Expense'); }
-function addRepaymentRow() { addBudgetRow('Repayment'); }
-
-function addBudgetRow(type) {
-  const tbody = document.getElementById('personalBudgetTable')?.querySelector('tbody');
-  if (!tbody) return;
-  const row = document.createElement('tr');
-  row.innerHTML = `
-    <td>${type}</td>
-    <td><input type="text" placeholder="Description" required></td>
-    <td><input type="number" step="0.01" required oninput="calculateBudget()"></td>
-    <td><button type="button" class="delete-button" onclick="deleteRow(this)">Delete</button></td>
-  `;
-  tbody.appendChild(row);
-  calculateBudget();
-}
-
-function computeTotalRepayments() {
-  let totalRepayments = 0;
-  const rows = document.querySelectorAll('#personalBudgetTable tbody tr');
-  rows.forEach(row => {
-    const type = (row.cells[0]?.textContent || '').trim();
-    if (type === 'Repayment') {
-      const input = row.cells[2]?.querySelector('input');
-      const amount = input ? (parseFloat(input.value) || 0) : 0;
-      totalRepayments += amount;
+    } catch (error) {
+        console.error(`Error loading ${sectionId} applications:`, error);
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="5" class="error">
+                    <i class="fas fa-exclamation-triangle"></i> Error loading applications: ${error.message}
+                </td>
+            </tr>
+        `;
     }
-  });
-  return totalRepayments;
 }
 
-function calculateBudget() {
-  let totalIncome = 0, totalExpense = 0, totalRepayments = 0;
-  const rows = document.querySelectorAll('#personalBudgetTable tbody tr');
-  rows.forEach(row => {
-    const type = row.cells[0]?.textContent?.trim();
-    const input = row.cells[2]?.querySelector('input');
-    const amount = input ? (parseFloat(input.value) || 0) : 0;
-    if (type === 'Income') totalIncome += amount;
-    else if (type === 'Expense') totalExpense += amount;
-    else if (type === 'Repayment') totalRepayments += amount;
-  });
+function renderApplicationsTable(tableId, applications) {
+    const tbody = document.getElementById(tableId);
+    if (!tbody) return;
 
-  const netIncome = totalIncome - totalExpense;
-  const netIncomeElem = document.getElementById('netIncome');
-  if (netIncomeElem) netIncomeElem.value = netIncome.toFixed(2);
-
-  const repaymentUsed = totalRepayments;
-
-  let dsrDisplay = '0.00%';
-  if (netIncome > 0 && repaymentUsed > 0) {
-    dsrDisplay = ((repaymentUsed / netIncome) * 100).toFixed(2) + '%';
-  } else if (repaymentUsed > 0 && netIncome <= 0) {
-    dsrDisplay = 'N/A';
-  }
-
-  const dsrElem = document.getElementById('debtServiceRatio');
-  if (dsrElem) dsrElem.value = dsrDisplay;
-}
-
-/* ---- Monthly Turnover calculations ---- */
-function calculateTotals() {
-  let totalCrTO = 0, totalDrTO = 0, totalMaxBal = 0, totalMinBal = 0;
-  for (let i = 1; i <= 3; i++) {
-    const cr = parseFloat(document.getElementById(`crTO${i}`)?.value) || 0;
-    const dr = parseFloat(document.getElementById(`drTO${i}`)?.value) || 0;
-    const maxB = parseFloat(document.getElementById(`maxBal${i}`)?.value) || 0;
-    const minB = parseFloat(document.getElementById(`minBal${i}`)?.value) || 0;
-    totalCrTO += cr;
-    totalDrTO += dr;
-    totalMaxBal += maxB;
-    totalMinBal += minB;
-  }
-
-  function setSpan(id, val) {
-    const el = document.getElementById(id);
-    if (el) el.textContent = Number(val || 0).toFixed(2);
-  }
-
-  setSpan('totalCrTO', totalCrTO);
-  setSpan('totalDrTO', totalDrTO);
-  setSpan('totalMaxBal', totalMaxBal);
-  setSpan('totalMinBal', totalMinBal);
-
-  setSpan('monthlyAvgCrTO', totalCrTO / 3);
-  setSpan('monthlyAvgDrTO', totalDrTO / 3);
-  setSpan('monthlyAvgMaxBal', totalMaxBal / 3);
-  setSpan('monthlyAvgMinBal', totalMinBal / 3);
-
-  setSpan('weeklyAvgCrTO', totalCrTO / 12);
-  setSpan('weeklyAvgDrTO', totalDrTO / 12);
-  setSpan('weeklyAvgMaxBal', totalMaxBal / 12);
-  setSpan('weeklyAvgMinBal', totalMinBal / 12);
-
-  setSpan('dailyAvgCrTO', totalCrTO / 90);
-  setSpan('dailyAvgDrTO', totalDrTO / 90);
-  setSpan('dailyAvgMaxBal', totalMaxBal / 90);
-  setSpan('dailyAvgMinBal', totalMinBal / 90);
-}
-
-/* ---- File upload preview ---- */
-function updateFilePreview(input) {
-  if (!input) return;
-  const map = {
-    'bank-statement': 'bank-statement-name',
-    'pay-slip': 'pay-slip-name',
-    'undertaking': 'undertaking-name',
-    'loan-statement': 'loan-statement-name'
-  };
-  const previewId = map[input.id] || (input.id + '-name');
-  const span = document.getElementById(previewId);
-  if (!span) return;
-  if (input.files && input.files[0]) {
-    span.textContent = input.files[0].name;
-    span.style.color = '#16a34a';
-  } else {
-    span.textContent = 'No file chosen';
-    span.style.color = '';
-  }
-}
-
-function addAdditionalDocument() {
-  additionalDocumentCount++;
-  const container = document.querySelector('#tab4 .upload-grid') || document.getElementById('tab4');
-  if (!container) return;
-  const upItem = document.createElement('div');
-  upItem.className = 'upload-item small-upload-card';
-  upItem.innerHTML = `
-    <label for="otherDocument${additionalDocumentCount}" style="display:block;font-weight:600;margin-bottom:6px;">Other Document ${additionalDocumentCount}:</label>
-    <input type="file" id="otherDocument${additionalDocumentCount}" class="file-input" onchange="updateFilePreview(this)">
-    <span id="otherDocument${additionalDocumentCount}-name" class="file-name">No file chosen</span>
-  `;
-  container.appendChild(upItem);
-}
-
-/* ---- Review population (for tab5) ---- */
-function escapeHtml(s) {
-  if (s === null || s === undefined) return '';
-  return String(s)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
-
-function populateReview() {
-  const setText = (id, value) => {
-    const el = document.getElementById(id);
-    if (el) el.textContent = value;
-  };
-
-  setText('review-name', safeValue('name') || 'Not provided');
-  setText('review-amount', safeValue('amount') || 'Not provided');
-  setText('review-purpose', safeValue('purpose') || 'Not provided');
-  setText('review-duration', safeValue('duration') || 'Not provided');
-  setText('review-interestRate', safeValue('interestRate') || 'Not provided');
-
-  setText('review-characterComment', document.getElementById('characterComment')?.value || 'No character comments provided');
-
-  const lhTBody = document.getElementById('review-loanHistoryTable')?.querySelector('tbody');
-  if (lhTBody) {
-    lhTBody.innerHTML = '';
-    const rows = document.querySelectorAll('#loanHistoryTable tbody tr');
-    if (!rows.length) {
-      lhTBody.innerHTML = `<tr><td colspan="5" class="no-data">No loan history provided</td></tr>`;
-    } else {
-      rows.forEach(row => {
-        const nrow = document.createElement('tr');
-        for (let i = 0; i < 5; i++) {
-          const input = row.cells[i]?.querySelector('input');
-          const val = input ? (input.value || '') : (row.cells[i]?.textContent || '');
-          nrow.innerHTML += `<td>${escapeHtml(val)}</td>`;
-        }
-        lhTBody.appendChild(nrow);
-      });
-    }
-  }
-
-  const budTBody = document.getElementById('review-personalBudgetTable')?.querySelector('tbody');
-  if (budTBody) {
-    budTBody.innerHTML = '';
-
-    const rows = Array.from(document.querySelectorAll('#personalBudgetTable tbody tr'));
-    const groups = { Income: [], Expense: [], Repayment: [] };
-
-    rows.forEach(row => {
-      const type = (row.cells[0]?.textContent || '').trim();
-      const desc = row.cells[1]?.querySelector('input')?.value || '';
-      const amt = parseFloat(row.cells[2]?.querySelector('input')?.value) || 0;
-      if (groups[type] !== undefined) groups[type].push({ type, desc, amt });
-      else groups.Expense.push({ type, desc, amt });
-    });
-
-    function appendGroup(title, items) {
-      const header = document.createElement('tr');
-      header.innerHTML = `<td colspan="2" style="font-weight:bold; padding-top:8px;">${escapeHtml(title)}</td>`;
-      budTBody.appendChild(header);
-
-      if (!items.length) {
-        const emptyRow = document.createElement('tr');
-        emptyRow.innerHTML = `<td colspan="2" class="no-data">No ${escapeHtml(title.toLowerCase())} items</td>`;
-        budTBody.appendChild(emptyRow);
+    if (!applications || applications.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="5" class="no-data">
+                    <i class="fas fa-inbox"></i> No applications found
+                </td>
+            </tr>
+        `;
         return;
-      }
-
-      items.forEach(it => {
-        const r = document.createElement('tr');
-        r.innerHTML = `<td>${escapeHtml(it.desc)}</td><td>${it.amt.toFixed(2)}</td>`;
-        budTBody.appendChild(r);
-      });
     }
 
-    appendGroup('INCOME', groups.Income);
-    appendGroup('EXPENDITURE', groups.Expense);
-    appendGroup('REPAYMENT', groups.Repayment);
-
-    const netIncomeVal = safeValue('netIncome') || '0.00';
-    const netRow = document.createElement('tr');
-    netRow.innerHTML = `<td style="text-align:right; font-weight:bold;">NET INCOME</td><td style="font-weight:bold;">${escapeHtml(netIncomeVal)}</td>`;
-    budTBody.appendChild(netRow);
-
-    const dsrVal = safeValue('debtServiceRatio') || '0.00%';
-    const dsrRow = document.createElement('tr');
-    dsrRow.innerHTML = `<td style="text-align:right; font-weight:bold;">Debt Service Ratio:</td><td style="font-weight:bold;">${escapeHtml(dsrVal)}</td>`;
-    budTBody.appendChild(dsrRow);
-  }
-
-  const totalRepaymentsVal = computeTotalRepayments();
-  setText('review-repaymentAmount', totalRepaymentsVal ? Number(totalRepaymentsVal).toFixed(2) : '0.00');
-
-  setText('review-netIncome', safeValue('netIncome') || '0.00');
-  setText('review-debtServiceRatio', safeValue('debtServiceRatio') || '0.00');
-
-  const mtTBody = document.getElementById('review-monthlyTurnoverTable')?.querySelector('tbody');
-  if (mtTBody) {
-    mtTBody.innerHTML = '';
-    for (let i = 1; i <= 3; i++) {
-      const month = safeValue(`month${i}`) || '';
-      const cr = safeValue(`crTO${i}`) || '0.00';
-      const dr = safeValue(`drTO${i}`) || '0.00';
-      const maxB = safeValue(`maxBal${i}`) || '0.00';
-      const minB = safeValue(`minBal${i}`) || '0.00';
-      mtTBody.innerHTML += `<tr><td>${escapeHtml(month)}</td><td>${escapeHtml(cr)}</td><td>${escapeHtml(dr)}</td><td>${escapeHtml(maxB)}</td><td>${escapeHtml(minB)}</td></tr>`;
-    }
-    const appendSummaryRow = (label, ids) => {
-      const v0 = parseFloat(safeText(ids[0], '0')) || 0;
-      const v1 = parseFloat(safeText(ids[1], '0')) || 0;
-      const v2 = parseFloat(safeText(ids[2], '0')) || 0;
-      const v3 = parseFloat(safeText(ids[3], '0')) || 0;
-      mtTBody.innerHTML += `<tr><td>${label}</td><td>${v0.toFixed(2)}</td><td>${v1.toFixed(2)}</td><td>${v2.toFixed(2)}</td><td>${v3.toFixed(2)}</td></tr>`;
+    // Ensure escapeHtml and format helpers exist; provide minimal fallbacks
+    const escapeHtmlSafe = typeof escapeHtml === 'function' ? escapeHtml : (s) => {
+        if (s === undefined || s === null) return '';
+        return String(s).replace(/[&<>"'`=\/]/g, function (c) {
+            return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','/':'&#x2F;','`':'&#x60;','=':'&#x3D;'}[c];
+        });
     };
-    if (document.getElementById('totalCrTO')) appendSummaryRow('<strong>Total</strong>', ['totalCrTO','totalDrTO','totalMaxBal','totalMinBal']);
-    if (document.getElementById('monthlyAvgCrTO')) appendSummaryRow('<strong>Monthly Average</strong>', ['monthlyAvgCrTO','monthlyAvgDrTO','monthlyAvgMaxBal','monthlyAvgMinBal']);
-    if (document.getElementById('weeklyAvgCrTO')) appendSummaryRow('<strong>Weekly Average</strong>', ['weeklyAvgCrTO','weeklyAvgDrTO','weeklyAvgMaxBal','weeklyAvgMinBal']);
-    if (document.getElementById('dailyAvgCrTO')) appendSummaryRow('<strong>Daily Average</strong>', ['dailyAvgCrTO','dailyAvgDrTO','dailyAvgMaxBal','dailyAvgMinBal']);
-  }
+    const formatSafe = typeof format === 'object' && format ? format : {
+        currency: (v) => v == null ? '' : (Number(v).toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })),
+        date: (d) => {
+            if (!d) return '';
+            try {
+                const dd = new Date(d);
+                return isNaN(dd.getTime()) ? String(d) : dd.toLocaleDateString();
+            } catch (e) { return String(d); }
+        }
+    };
 
-  setText('review-marginComment', document.getElementById('marginComment')?.value || 'No margin requirements specified');
-  setText('review-repaymentComment', document.getElementById('repaymentComment')?.value || 'Standard repayment terms apply');
-  setText('review-securityComment', document.getElementById('securityComment')?.value || 'Primary collateral required');
-  setText('review-financialsComment', document.getElementById('financialsComment')?.value || 'Financial statements reviewed and acceptable');
-  setText('review-risksComment', document.getElementById('risksComment')?.value || 'Moderate market risk identified');
-  setText('review-riskMitigationComment', document.getElementById('riskMitigationComment')?.value || 'Regular monitoring implemented');
-  setText('review-creditOfficerComment', document.getElementById('creditOfficerComment')?.value || 'No recommendation provided');
-
-  const uploadsList = document.getElementById('review-uploads-list');
-  if (uploadsList) {
-    uploadsList.innerHTML = '';
-    const docs = [
-      { label: 'Bank Statement', spanId: 'bank-statement-name' },
-      { label: 'Pay Slip', spanId: 'pay-slip-name' },
-      { label: 'Letter of Undertaking', spanId: 'undertaking-name' },
-      { label: 'Loan Statement', spanId: 'loan-statement-name' }
-    ];
-    docs.forEach(d => {
-      const span = document.getElementById(d.spanId);
-      const name = span ? span.textContent.trim() : '';
-      const li = document.createElement('li');
-      if (!name || /no file/i.test(name)) {
-        li.innerHTML = `<strong>${d.label}:</strong> <span style="color:#666;">Not uploaded</span>`;
-      } else {
-        li.innerHTML = `<strong>${d.label}:</strong> <span>${escapeHtml(name)}</span>`;
-      }
-      uploadsList.appendChild(li);
-    });
-  }
+    tbody.innerHTML = applications.map(app => `
+        <tr>
+            <td class="app-number">
+                <a href="javascript:void(0)" class="app-number-link" onclick="handleAppNumberClick('${escapeHtmlSafe(app.appNumber || '')}')">
+                    <i class="fas fa-file-invoice"></i> ${escapeHtmlSafe(app.appNumber || 'N/A')}
+                </a>
+            </td>
+            <td class="applicant-name">${escapeHtmlSafe(app.applicantName || app.name || 'N/A')}</td>
+            <td class="amount">${formatSafe.currency(app.amount)}</td>
+            <td class="date">${formatSafe.date(app.date)}</td>
+            <td class="action-by">${escapeHtmlSafe(app.actionBy || 'N/A')}</td>
+        </tr>
+    `).join('');
 }
 
-/* ---- Build structured form data ---- */
-function buildModalFormData() {
-  const formData = {
-    name: safeValue('name'),
-    amount: safeValue('amount'),
-    purpose: safeValue('purpose'),
-    duration: safeValue('duration'),
-    interestRate: safeValue('interestRate'),
-    characterComment: document.getElementById('characterComment')?.value || '',
-    loanHistory: [],
-    personalBudget: [],
-    netIncome: safeValue('netIncome') || '0.00',
-    totalRepayments: computeTotalRepayments(),
-    debtServiceRatio: safeValue('debtServiceRatio') || '0.00%',
-    monthlyTurnover: {
-      month1: safeValue('month1') || '',
-      month2: safeValue('month2') || '',
-      month3: safeValue('month3') || '',
-      crTO1: safeValue('crTO1') || 0,
-      crTO2: safeValue('crTO2') || 0,
-      crTO3: safeValue('crTO3') || 0,
-      drTO1: safeValue('drTO1') || 0,
-      drTO2: safeValue('drTO2') || 0,
-      drTO3: safeValue('drTO3') || 0,
-      maxBal1: safeValue('maxBal1') || 0,
-      maxBal2: safeValue('maxBal2') || 0,
-      maxBal3: safeValue('maxBal3') || 0,
-      minBal1: safeValue('minBal1') || 0,
-      minBal2: safeValue('minBal2') || 0,
-      minBal3: safeValue('minBal3') || 0,
-      totalCrTO: safeText('totalCrTO') || 0,
-      totalDrTO: safeText('totalDrTO') || 0,
-      totalMaxBal: safeText('totalMaxBal') || 0,
-      totalMinBal: safeText('totalMinBal') || 0,
-      monthlyAvgCrTO: safeText('monthlyAvgCrTO') || 0,
-      monthlyAvgDrTO: safeText('monthlyAvgDrTO') || 0,
-      monthlyAvgMaxBal: safeText('monthlyAvgMaxBal') || 0,
-      monthlyAvgMinBal: safeText('monthlyAvgMinBal') || 0,
-      weeklyAvgCrTO: safeText('weeklyAvgCrTO') || 0,
-      weeklyAvgDrTO: safeText('weeklyAvgDrTO') || 0,
-      weeklyAvgMaxBal: safeText('weeklyAvgMaxBal') || 0,
-      weeklyAvgMinBal: safeText('weeklyAvgMinBal') || 0,
-      dailyAvgCrTO: safeText('dailyAvgCrTO') || 0,
-      dailyAvgDrTO: safeText('dailyAvgDrTO') || 0,
-      dailyAvgMaxBal: safeText('dailyAvgMaxBal') || 0,
-      dailyAvgMinBal: safeText('dailyAvgMinBal') || 0
-    },
-    marginComment: document.getElementById('marginComment')?.value || '',
-    repaymentComment: document.getElementById('repaymentComment')?.value || '',
-    securityComment: document.getElementById('securityComment')?.value || '',
-    financialsComment: document.getElementById('financialsComment')?.value || '',
-    risksComment: document.getElementById('risksComment')?.value || '',
-    riskMitigationComment: document.getElementById('riskMitigationComment')?.value || '',
-    creditOfficerComment: document.getElementById('creditOfficerComment')?.value || '',
-    uploadedFiles: {
-      bankStatement: safeText('bank-statement-name'),
-      paySlip: safeText('pay-slip-name'),
-      undertaking: safeText('undertaking-name'),
-      loanStatement: safeText('loan-statement-name')
+function setupEventListeners() {
+    // Setup click handlers for app numbers (delegated)
+    document.addEventListener('click', function(e) {
+        const el = e.target.closest && e.target.closest('.app-number-link');
+        if (el) {
+            const appNumber = el.getAttribute('onclick') ? (el.getAttribute('onclick').match(/handleAppNumberClick\('([^']+)'\)/) || [null, el.textContent.trim()])[1] : el.textContent.trim();
+            if (appNumber) handleAppNumberClick(appNumber);
+        }
+    });
+
+    // Setup keyboard shortcuts
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'r' && e.ctrlKey) {
+            e.preventDefault();
+            refreshApplications();
+        }
+    });
+}
+
+function refreshApplications() {
+    loadApplicationsData(currentSection);
+
+    // Also refresh badge counts
+    if (typeof updateBadgeCounts === 'function') {
+        updateBadgeCounts();
     }
-  };
 
-  const lhRows = document.querySelectorAll('#loanHistoryTable tbody tr');
-  lhRows.forEach(row => {
-    const inputs = row.querySelectorAll('input');
-    formData.loanHistory.push({
-      disbursementDate: inputs[0]?.value || '',
-      tenure: inputs[1]?.value || '',
-      amount: inputs[2]?.value || 0,
-      endDate: inputs[3]?.value || '',
-      comment: inputs[4]?.value || ''
-    });
-  });
-
-  const pbRows = document.querySelectorAll('#personalBudgetTable tbody tr');
-  pbRows.forEach(row => {
-    const type = row.cells[0]?.textContent || '';
-    const desc = row.cells[1]?.querySelector('input')?.value || '';
-    const amt = row.cells[2]?.querySelector('input')?.value || 0;
-    formData.personalBudget.push({ type, description: desc, amount: amt });
-  });
-
-  return formData;
-}
-
-/* ---- Save draft ---- */
-function saveDraftFromModal() {
-  const loggedInUser = localStorage.getItem('loggedInName') || '';
-  if (!loggedInUser) {
-    alert('Please login first!');
-    return;
-  }
-
-  const appNumber = window.currentAppNumber || document.getElementById('app-number')?.textContent || '';
-  if (!appNumber) {
-    alert('Application number not found.');
-    return;
-  }
-
-  const name = document.getElementById('name')?.value;
-  if (!name) {
-    alert('Please at least enter the applicant name for the draft.');
-    return;
-  }
-
-  const formData = buildModalFormData();
-
-  if (typeof showLoading === 'function') showLoading('Saving draft...');
-
-  callApiMethod('saveProcessApplicationForm', { _args: [appNumber, formData, loggedInUser, true] })
-    .then(res => {
-      if (typeof hideLoading === 'function') hideLoading();
-
-      let resp = res;
-      if (res && res.success && res.data) resp = res;
-      if (resp && resp.success) {
-        alert(resp.message || 'Draft saved!');
-        if (typeof closeModal === 'function') closeModal();
-        if (typeof refreshApplications === 'function') refreshApplications();
-        if (typeof updateBadgeCounts === 'function') updateBadgeCounts();
-      } else {
-        alert('Failed to save draft: ' + (resp && resp.message ? resp.message : 'unknown error'));
-      }
-    })
-    .catch(err => {
-      if (typeof hideLoading === 'function') hideLoading();
-      console.error('Error saving draft:', err);
-      alert('Error saving draft: ' + (err?.message || err));
-    });
-}
-
-/* ---- Save / Submit application ---- */
-function saveNewApplication() {
-  const loggedInUser = localStorage.getItem('loggedInName');
-  if (!loggedInUser) {
-    alert('Please login first!');
-    return;
-  }
-  const appNumber = window.currentAppNumber || document.getElementById('app-number')?.textContent || '';
-  if (!appNumber) {
-    alert('Application number not found. Please start a new application from the main dashboard.');
-    return;
-  }
-
-  const name = document.getElementById('name')?.value;
-  const amount = document.getElementById('amount')?.value;
-  const purpose = document.getElementById('purpose')?.value;
-  const duration = document.getElementById('duration')?.value;
-  const interestRate = document.getElementById('interestRate')?.value;
-
-  if (!name || !amount || !purpose || !duration || !interestRate) {
-    alert('Please fill in all required fields: Name, Amount, Purpose, Duration, and Interest Rate');
-    return;
-  }
-
-  const formData = buildModalFormData();
-  formData.appNumber = appNumber;
-
-  if (typeof showLoading === 'function') showLoading('Submitting application...');
-
-  callApiMethod('saveProcessApplicationForm', { _args: [appNumber, formData, loggedInUser, false] })
-    .then(response => {
-      if (typeof hideLoading === 'function') hideLoading();
-
-      let resp = response;
-      if (response && response.success && response.data) resp = response;
-      if (resp && resp.success) {
-        alert(resp.message || 'Application submitted successfully!');
-        if (typeof closeModal === 'function') closeModal();
-        if (typeof refreshApplications === 'function') refreshApplications();
-        if (typeof updateBadgeCounts === 'function') updateBadgeCounts();
-      } else {
-        alert('Error saving application: ' + (resp?.message || 'unknown error'));
-      }
-    })
-    .catch(err => {
-      if (typeof hideLoading === 'function') hideLoading();
-      console.error('Error submitting application:', err);
-      alert('Error submitting application: ' + (err?.message || err));
-    });
-}
-
-function submitNewApplication() {
-  saveNewApplication();
-}
-
-/* ---- Initialization & UI wiring ---- */
-function initNewApplicationScripts() {
-  calculateTotals();
-  calculateBudget();
-
-  ['bank-statement','pay-slip','undertaking','loan-statement'].forEach(id => {
-    const input = document.getElementById(id);
-    if (input) {
-      input.removeEventListener('change', function(){});
-      input.addEventListener('change', function() { updateFilePreview(this); });
+    // Show success message
+    if (typeof showSuccessModal === 'function') {
+        showSuccessModal('Applications list refreshed');
     }
-  });
+}
 
-  const modal = document.getElementById('newApplicationModal');
-  if (modal) {
-    window.addEventListener('click', function(event) {
-      if (event.target === modal) closeModal();
+function showApplicationPreview(appData) {
+    const escapeHtmlSafe = typeof escapeHtml === 'function' ? escapeHtml : (s) => s == null ? '' : String(s).replace(/[&<>"'`=\/]/g, function (c) {
+        return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','/':'&#x2F;','`':'&#x60;','=':'&#x3D;'}[c];
     });
-  }
-}
+    const formatSafe = typeof format === 'object' && format ? format : {
+        currency: (v) => v == null ? '' : (Number(v).toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })),
+        date: (d) => {
+            if (!d) return '';
+            try {
+                const dd = new Date(d);
+                return isNaN(dd.getTime()) ? String(d) : dd.toLocaleDateString();
+            } catch (e) { return String(d); }
+        }
+    };
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initNewApplicationScripts);
-} else {
-  initNewApplicationScripts();
-}
+    const previewHtml = `
+        <div class="app-preview" id="app-preview" tabindex="-1" style="display:flex;">
+            <div class="preview-card">
+                <div class="preview-header">
+                    <h3><i class="fas fa-file-alt"></i> Application Preview</h3>
+                    <button class="preview-close" onclick="closeApplicationPreview()">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="preview-content">
+                    <div class="preview-grid">
+                        <div class="preview-item">
+                            <span class="preview-label">Application Number:</span>
+                            <span class="preview-value app-number-value">${escapeHtmlSafe(appData.appNumber || '')}</span>
+                        </div>
+                        <div class="preview-item">
+                            <span class="preview-label">Applicant Name:</span>
+                            <span class="preview-value">${escapeHtmlSafe(appData.applicantName || appData.name || 'N/A')}</span>
+                        </div>
+                        <div class="preview-item">
+                            <span class="preview-label">Amount:</span>
+                            <span class="preview-value amount-value">${formatSafe.currency(appData.amount)}</span>
+                        </div>
+                        <div class="preview-item">
+                            <span class="preview-label">Date:</span>
+                            <span class="preview-value">${formatSafe.date(appData.date)}</span>
+                        </div>
+                        <div class="preview-item">
+                            <span class="preview-label">Status:</span>
+                            <span class="preview-value status-badge ${getStatusBadgeClass(appData.status)}">
+                                ${escapeHtmlSafe(appData.status || 'N/A')}
+                            </span>
+                        </div>
+                        <div class="preview-item">
+                            <span class="preview-label">Stage:</span>
+                            <span class="preview-value">${escapeHtmlSafe(appData.stage || 'N/A')}</span>
+                        </div>
+                        <div class="preview-item">
+                            <span class="preview-label">Action By:</span>
+                            <span class="preview-value">${escapeHtmlSafe(appData.actionBy || 'N/A')}</span>
+                        </div>
+                        <div class="preview-item">
+                            <span class="preview-label">Last Updated By:</span>
+                            <span class="preview-value">${escapeHtmlSafe(appData.lastUpdatedBy || 'N/A')}</span>
+                        </div>
+                    </div>
 
-/* ---- Populate form with existing data ---- */
-function populateFormWithData(appData) {
-  console.log('Populating form with data:', appData);
-
-  setInputValue('name', appData.name || '');
-  setInputValue('amount', appData.amount || '');
-  setInputValue('purpose', appData.purpose || '');
-  setInputValue('duration', appData.duration || '');
-  setInputValue('interestRate', appData.interestRate || '');
-
-  setTextareaValue('characterComment', appData.characterComment || '');
-
-  populateLoanHistory(appData.loanHistory || []);
-  populatePersonalBudget(appData.personalBudget || []);
-  populateMonthlyTurnover(appData.monthlyTurnover || {});
-
-  setTextareaValue('marginComment', appData.marginComment || '');
-  setTextareaValue('repaymentComment', appData.repaymentComment || '');
-  setTextareaValue('securityComment', appData.securityComment || '');
-  setTextareaValue('financialsComment', appData.financialsComment || '');
-  setTextareaValue('risksComment', appData.risksComment || '');
-  setTextareaValue('riskMitigationComment', appData.riskMitigationComment || '');
-  setTextareaValue('creditOfficerComment', appData.creditOfficerComment || '');
-
-  setInputValue('netIncome', appData.netIncome || '0.00');
-  setInputValue('debtServiceRatio', appData.debtServiceRatio || '0.00%');
-
-  updateFilePreviews(appData.documents || []);
-}
-
-/* ---- Helpers for populateFormWithData ---- */
-function setInputValue(id, value) {
-  const el = document.getElementById(id);
-  if (el) el.value = value;
-}
-function setTextareaValue(id, value) {
-  const el = document.getElementById(id);
-  if (el) {
-    el.value = value;
-    el.style.height = 'auto';
-    el.style.height = (el.scrollHeight) + 'px';
-  }
-}
-function formatDateForInput(dateString) {
-  if (!dateString) return '';
-  try {
-    const date = new Date(dateString);
-    if (isNaN(date.getTime())) return '';
-    return date.toISOString().split('T')[0];
-  } catch (e) {
-    return '';
-  }
-}
-function populateLoanHistory(loanHistory) {
-  const tbody = document.getElementById('loanHistoryTable')?.querySelector('tbody');
-  if (!tbody) return;
-  tbody.innerHTML = '';
-  if (loanHistory.length === 0) return;
-  loanHistory.forEach(item => {
-    const row = document.createElement('tr');
-    row.innerHTML = `
-      <td><input type="date" value="${formatDateForInput(item.disbursementDate)}" required></td>
-      <td><input type="text" value="${escapeHtml(item.tenure || '')}" placeholder="e.g., 12 months"></td>
-      <td><input type="number" step="0.01" value="${item.amount || 0}" required></td>
-      <td><input type="date" value="${formatDateForInput(item.endDate)}" required></td>
-      <td><input type="text" value="${escapeHtml(item.comment || '')}" placeholder="Comments"></td>
-      <td><button type="button" class="delete-button" onclick="deleteRow(this)">Delete</button></td>
+                    ${appData.purpose ? `
+                    <div class="preview-section">
+                        <h4><i class="fas fa-bullseye"></i> Purpose</h4>
+                        <p>${escapeHtmlSafe(appData.purpose)}</p>
+                    </div>
+                    ` : ''}
+                </div>
+                <div class="preview-actions">
+                    <button class="btn-secondary" onclick="closeApplicationPreview()">
+                        Close
+                    </button>
+                    <button class="btn-primary" onclick="viewApplicationDetails('${escapeHtmlSafe(appData.appNumber || '')}')">
+                        <i class="fas fa-external-link-alt"></i> View Full Details
+                    </button>
+                </div>
+            </div>
+        </div>
     `;
-    tbody.appendChild(row);
-  });
-}
-function populatePersonalBudget(personalBudget) {
-  const tbody = document.getElementById('personalBudgetTable')?.querySelector('tbody');
-  if (!tbody) return;
-  tbody.innerHTML = '';
-  if (personalBudget.length === 0) return;
-  personalBudget.forEach(item => {
-    const row = document.createElement('tr');
-    row.innerHTML = `
-      <td>${escapeHtml(item.type || '')}</td>
-      <td><input type="text" value="${escapeHtml(item.description || '')}" placeholder="Description" required></td>
-      <td><input type="number" step="0.01" value="${item.amount || 0}" required oninput="calculateBudget()"></td>
-      <td><button type="button" class="delete-button" onclick="deleteRow(this)">Delete</button></td>
-    `;
-    tbody.appendChild(row);
-  });
-}
-function populateMonthlyTurnover(turnover) {
-  if (!turnover) return;
-  if (turnover.month1 !== undefined) setInputValue('month1', turnover.month1 || 'Nov-24');
-  if (turnover.month2 !== undefined) setInputValue('month2', turnover.month2 || 'Dec-24');
-  if (turnover.month3 !== undefined) setInputValue('month3', turnover.month3 || 'Jan-25');
 
-  if (turnover.crTO1 !== undefined) setInputValue('crTO1', turnover.crTO1 || 0);
-  if (turnover.crTO2 !== undefined) setInputValue('crTO2', turnover.crTO2 || 0);
-  if (turnover.crTO3 !== undefined) setInputValue('crTO3', turnover.crTO3 || 0);
-
-  if (turnover.drTO1 !== undefined) setInputValue('drTO1', turnover.drTO1 || 0);
-  if (turnover.drTO2 !== undefined) setInputValue('drTO2', turnover.drTO2 || 0);
-  if (turnover.drTO3 !== undefined) setInputValue('drTO3', turnover.drTO3 || 0);
-
-  if (turnover.maxBal1 !== undefined) setInputValue('maxBal1', turnover.maxBal1 || 0);
-  if (turnover.maxBal2 !== undefined) setInputValue('maxBal2', turnover.maxBal2 || 0);
-  if (turnover.maxBal3 !== undefined) setInputValue('maxBal3', turnover.maxBal3 || 0);
-
-  if (turnover.minBal1 !== undefined) setInputValue('minBal1', turnover.minBal1 || 0);
-  if (turnover.minBal2 !== undefined) setInputValue('minBal2', turnover.minBal2 || 0);
-  if (turnover.minBal3 !== undefined) setInputValue('minBal3', turnover.minBal3 || 0);
-}
-
-function updateFilePreviews(documents) {
-  if (!documents || documents.length === 0) return;
-  documents.forEach(doc => {
-    if (doc.type === 'bankStatement') {
-      safeSetText('bank-statement-name', doc.name || 'File uploaded');
-      const el = document.getElementById('bank-statement-name');
-      if (el) el.style.color = '#16a34a';
-    } else if (doc.type === 'paySlip') {
-      safeSetText('pay-slip-name', doc.name || 'File uploaded');
-      const el = document.getElementById('pay-slip-name');
-      if (el) el.style.color = '#16a34a';
-    } else if (doc.type === 'undertaking') {
-      safeSetText('undertaking-name', doc.name || 'File uploaded');
-      const el = document.getElementById('undertaking-name');
-      if (el) el.style.color = '#16a34a';
-    } else if (doc.type === 'loanStatement') {
-      safeSetText('loan-statement-name', doc.name || 'File uploaded');
-      const el = document.getElementById('loan-statement-name');
-      if (el) el.style.color = '#16a34a';
+    // Remove existing preview if any
+    const existingPreview = document.getElementById('app-preview');
+    if (existingPreview) {
+        existingPreview.remove();
     }
-  });
+
+    // Add to document
+    document.body.insertAdjacentHTML('beforeend', previewHtml);
+
+    // Show preview
+    const preview = document.getElementById('app-preview');
+    if (preview) {
+        preview.style.display = 'flex';
+
+        // Close on escape key
+        preview.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                closeApplicationPreview();
+            }
+        });
+
+        // Close on background click
+        preview.addEventListener('click', function(e) {
+            if (e.target === preview) {
+                closeApplicationPreview();
+            }
+        });
+
+        // Focus on preview
+        preview.focus();
+    }
 }
 
-/* ---- Expose core functions globally ---- */
-window.showNewApplicationModal = showNewApplicationModal;
-window.loadExistingApplication = loadExistingApplication;
-window.saveDraftFromModal = saveDraftFromModal;
-window.saveNewApplication = saveNewApplication;
-window.submitNewApplication = submitNewApplication;
+function closeApplicationPreview() {
+    const preview = document.getElementById('app-preview');
+    if (preview) {
+        preview.remove();
+    }
+}
 
-// Debug helper
-window.debugModal = function() {
-  const modal = document.getElementById('newApplicationModal');
-  if (modal) {
-    modal.classList.add('active');
-    modal.style.display = 'block';
-    modal.style.opacity = '1';
-    console.log('Modal forced open via debug');
-  }
+function getStatusBadgeClass(status) {
+    const statusMap = {
+        'DRAFT': 'status-draft',
+        'NEW': 'status-new',
+        'PENDING': 'status-pending',
+        'PENDING APPROVAL': 'status-pending-approval',
+        'APPROVED': 'status-approved',
+        'COMPLETE': 'status-approved'
+    };
+    return statusMap[status] || 'status-pending';
+}
+
+/**
+ * Handle click on an application number link.
+ * Tries to use available API (viewAppAPI, gasAPI, appsAPI, apiService) to fetch details.
+ * Falls back to a minimal preview if no API is available.
+ */
+async function handleAppNumberClick(appNumber) {
+    try {
+        if (!appNumber) return;
+
+        // Prefer higher-level API objects if available
+        const api = window.viewAppAPI || window.newAppAPI || window.appsAPI || window.gasAPI || window.apiService || null;
+
+        // If we have a method that returns full details
+        if (api && typeof api.getApplicationDetails === 'function') {
+            const user = (window.getCurrentUser && getCurrentUser()) || {};
+            const userName = user.userName || user.fullName || '';
+            const result = await api.getApplicationDetails(appNumber, userName);
+            if (result && result.success && result.data) {
+                showApplicationPreview(result.data);
+            } else if (result && result.appNumber) {
+                showApplicationPreview(result);
+            } else {
+                const msg = (result && result.message) ? result.message : 'Failed to load application details';
+                if (typeof showErrorModal === 'function') showErrorModal(msg);
+                else console.warn(msg);
+            }
+            return;
+        }
+
+        // Generic ApiService request() fallback
+        if (api && typeof api.request === 'function') {
+            try {
+                const resp = await api.request('getApplicationDetails', { appNumber });
+                if (resp && resp.success && resp.data) {
+                    showApplicationPreview(resp.data);
+                } else if (resp && resp.appNumber) {
+                    showApplicationPreview(resp);
+                } else {
+                    showApplicationPreview({ appNumber });
+                }
+            } catch (err) {
+                console.warn('API request failed:', err);
+                showApplicationPreview({ appNumber });
+            }
+            return;
+        }
+
+        // No API available — show minimal preview
+        console.warn('No API available to fetch application details. Showing minimal preview.');
+        showApplicationPreview({ appNumber });
+
+    } catch (err) {
+        console.error('handleAppNumberClick error:', err);
+        if (typeof showErrorModal === 'function') showErrorModal(err.message || 'Error opening application');
+    }
+}
+
+// Make functions globally available
+window.initializeApplicationsSection = initializeApplicationsSection;
+window.showSection = showSection;
+window.refreshApplications = refreshApplications;
+window.handleAppNumberClick = handleAppNumberClick;
+window.showApplicationPreview = showApplicationPreview;
+window.closeApplicationPreview = closeApplicationPreview;
+window.viewApplicationDetails = function(appNumber) {
+    closeApplicationPreview();
+    handleAppNumberClick(appNumber);
 };
