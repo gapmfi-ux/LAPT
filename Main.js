@@ -10,7 +10,7 @@ let currentViewingAppData = null;
 // ===== API INITIALIZATION =====
 async function initializeAPI() {
     try {
-        // If an ApiLoader exists, load modules. If not, continue in offline/demo mode.
+        // If an ApiLoader exists, load modules.
         if (window.ApiLoader && typeof window.ApiLoader.loadAll === 'function') {
             try {
                 await window.ApiLoader.loadAll();
@@ -22,7 +22,7 @@ async function initializeAPI() {
             console.warn('ApiLoader not found; skipping module load.');
         }
 
-        // Wait briefly for APIs (main-api.js) to initialize globals (apiService / gasAPI / appsAPI).
+        // Wait briefly for APIs to initialize
         await new Promise(resolve => {
             let waited = 0;
             const checkInterval = setInterval(() => {
@@ -30,7 +30,6 @@ async function initializeAPI() {
                     clearInterval(checkInterval);
                     resolve();
                 } else if (waited >= 3000) {
-                    // Stop waiting after 3s - proceed in offline mode
                     clearInterval(checkInterval);
                     resolve();
                 } else {
@@ -47,21 +46,11 @@ async function initializeAPI() {
             } catch (err) {
                 console.warn('apiService.testConnection failed:', err);
             }
-        } else if (window.gasAPI && typeof window.gasAPI.testConnection === 'function') {
-            try {
-                const testResult = await window.gasAPI.testConnection();
-                console.log('API Connection Test (gasAPI):', testResult);
-            } catch (err) {
-                console.warn('gasAPI.testConnection failed:', err);
-            }
-        } else {
-            console.warn('No API service object available after loader step.');
         }
 
         return true;
     } catch (error) {
         console.error('Failed to initialize API:', error);
-        // Continue anyway - allow UI to start in offline/demo mode
         return true;
     }
 }
@@ -93,7 +82,6 @@ document.addEventListener('DOMContentLoaded', async function() {
     if (user) {
         setLoggedInUser(user.fullName || user.name, user.role);
     } else {
-        // Fallback to localStorage
         const loggedInName = localStorage.getItem('loggedInName');
         const userRole = localStorage.getItem('userRole');
         setLoggedInUser(loggedInName, userRole);
@@ -109,9 +97,6 @@ document.addEventListener('DOMContentLoaded', async function() {
     // Show dashboard
     showDashboard();
 
-    // Initialize browser notifications
-    initializeBrowserNotifications();
-
     // Setup event listeners
     setupEventListeners();
 
@@ -119,23 +104,12 @@ document.addEventListener('DOMContentLoaded', async function() {
     await updateWelcomeStats();
 });
 
-// Emergency timeout
-setTimeout(function() {
-    const loading = document.getElementById('loading');
-    if (loading && loading.style.display !== 'none') {
-        console.warn('Emergency: Forcing loading overlay to hide');
-        loading.style.display = 'none';
-    }
-}, 3000);
-
 // ===== AUTHENTICATION CHECK =====
 function checkAuthentication() {
-    // Check if user is authenticated via localStorage
     const loggedInName = localStorage.getItem('loggedInName');
     const user = localStorage.getItem('user');
 
     if (!loggedInName && !user) {
-        // Redirect to login page
         window.location.href = 'login/Login.html';
         return false;
     }
@@ -144,13 +118,11 @@ function checkAuthentication() {
 
 function getCurrentUser() {
     try {
-        // Try to get from localStorage
         const userStr = localStorage.getItem('user');
         if (userStr) {
             return JSON.parse(userStr);
         }
 
-        // Fallback to individual fields
         const loggedInName = localStorage.getItem('loggedInName');
         const userRole = localStorage.getItem('userRole');
         const userName = localStorage.getItem('userName');
@@ -205,11 +177,7 @@ function cacheElements() {
         'new-count': 'new-count',
         'pending-count': 'pending-count',
         'pending-approvals-count': 'pending-approvals-count',
-        'approved-count': 'approved-count',
-        'welcome-new-count': 'welcome-new-count',
-        'welcome-pending-count': 'welcome-pending-count',
-        'welcome-pending-approvals-count': 'welcome-pending-approvals-count',
-        'welcome-approved-count': 'welcome-approved-count'
+        'approved-count': 'approved-count'
     };
 
     for (const [key, id] of Object.entries(elements)) {
@@ -225,7 +193,6 @@ function setLoggedInUser(name, role = '') {
 }
 
 function setupEventListeners() {
-    // Setup any global event listeners here
     console.log('Global event listeners setup');
 }
 
@@ -236,18 +203,14 @@ function showDashboard() {
         appContainer.classList.remove('hidden');
         appContainer.style.display = 'block';
     }
-
-    // Load default section
     showSection('new');
 }
 
 async function showSection(sectionId) {
-    // Update active menu button
     document.querySelectorAll('.menu-btn').forEach(btn => btn.classList.remove('active'));
     const activeBtn = document.querySelector(`.menu-btn[onclick*="showSection('${sectionId}')"]`);
     if (activeBtn) activeBtn.classList.add('active');
 
-    // Load the section content
     await loadSectionContent(sectionId);
 }
 
@@ -355,7 +318,7 @@ async function loadJS(filePath) {
 // ===== WELCOME STATS =====
 async function updateWelcomeStats() {
     try {
-        const apiClient = window.apiService || window.gasAPI || window.appsAPI || window.newAppAPI || window.viewAppAPI || null;
+        const apiClient = window.apiService || window.gasAPI || window.appsAPI || window.newAppAPI || null;
 
         if (!apiClient || (typeof apiClient.getAllApplicationCounts !== 'function' && typeof apiClient.request !== 'function')) {
             console.warn('API not available for stats');
@@ -374,7 +337,6 @@ async function updateWelcomeStats() {
             const counts = result.data;
             updateWelcomeStatsUI(counts);
         } else if (result && typeof result === 'object' && ('new' in result || 'pending' in result)) {
-            // direct counts object
             updateWelcomeStatsUI(result);
         } else {
             updateWelcomeStatsWithDefaults();
@@ -386,21 +348,6 @@ async function updateWelcomeStats() {
 }
 
 function updateWelcomeStatsUI(counts) {
-    const elements = {
-        'welcome-new-count': counts.new || 0,
-        'welcome-pending-count': counts.pending || 0,
-        'welcome-pending-approvals-count': counts.pendingApprovals || 0,
-        'welcome-approved-count': counts.approved || 0
-    };
-
-    for (const [id, count] of Object.entries(elements)) {
-        const element = document.getElementById(id);
-        if (element) {
-            element.textContent = count;
-        }
-    }
-
-    // Update sidebar badges
     const badgeElements = {
         'new-count': counts.new || 0,
         'pending-count': counts.pending || 0,
@@ -418,20 +365,12 @@ function updateWelcomeStatsUI(counts) {
 }
 
 function updateWelcomeStatsWithDefaults() {
-    // Set all counts to 0
-    const elements = [
-        'welcome-new-count', 'welcome-pending-count',
-        'welcome-pending-approvals-count', 'welcome-approved-count',
-        'new-count', 'pending-count', 'pending-approvals-count', 'approved-count'
-    ];
-
+    const elements = ['new-count', 'pending-count', 'pending-approvals-count', 'approved-count'];
     elements.forEach(id => {
         const element = document.getElementById(id);
         if (element) {
             element.textContent = '0';
-            if (id.includes('-count')) {
-                element.style.display = 'none';
-            }
+            element.style.display = 'none';
         }
     });
 }
@@ -474,7 +413,6 @@ function showConfirmationModal(message, callback) {
     if (cachedElements['confirmation-modal']) {
         cachedElements['confirmation-modal'].style.display = 'flex';
     }
-    // Store callback for confirmation
     window.confirmationCallback = callback;
 }
 
@@ -489,49 +427,25 @@ function closeConfirmationModal(confirmed) {
     }
 }
 
-function showWarning(message) {
-    console.warn('Warning:', message);
-    // Could implement a non-modal warning display
-    // For now, just log to console
-}
-
 // ===== APPLICATION FUNCTIONS =====
-
-async function logout() {
+function logout() {
     showConfirmationModal('Are you sure you want to logout?', async (confirmed) => {
         if (confirmed) {
             showLoading('Logging out...');
-
             try {
-                // Clear stored data
                 localStorage.clear();
                 sessionStorage.clear();
-
-                // Clear API cache if available
                 if (window.apiService && window.apiService.clearCache) {
                     window.apiService.clearCache();
                 }
-
                 hideLoading();
-
-                // Redirect to login page
                 window.location.href = 'login/Login.html';
             } catch (error) {
                 hideLoading();
-                console.error('Error during logout:', error);
-                // Still redirect to login
                 window.location.href = 'login/Login.html';
             }
         }
     });
-}
-
-function updateBadgeCount(status, count) {
-    const badgeElement = document.getElementById(status + '-count');
-    if (badgeElement) {
-        badgeElement.textContent = count;
-        badgeElement.style.display = count > 0 ? 'inline-block' : 'none';
-    }
 }
 
 async function updateBadgeCounts() {
@@ -560,91 +474,17 @@ async function updateBadgeCounts() {
         }
     } catch (error) {
         console.error('Error updating badge counts:', error);
-        // Set all badges to 0
         ['new', 'pending', 'pending-approvals', 'approved'].forEach(status => {
             updateBadgeCount(status, 0);
         });
     }
 }
 
-// ===== NOTIFICATIONS =====
-function updateUserNotificationBadge() {
-    // This would be implemented with actual notification data
-    const count = 0; // Placeholder
-    const badge = cachedElements['user-notification-badge'];
-    if (badge) {
-        if (count > 0) {
-            badge.textContent = count > 99 ? '99+' : count;
-            badge.style.display = 'flex';
-        } else {
-            badge.style.display = 'none';
-        }
-    }
-}
-
-function initializeBrowserNotifications() {
-    if (!("Notification" in window)) {
-        console.log('Browser notifications not supported');
-        return;
-    }
-
-    switch (Notification.permission) {
-        case "granted":
-            setupNotificationListener();
-            break;
-        case "denied":
-            console.log('Notifications denied by user');
-            break;
-        case "default":
-            // Don't request permission automatically
-            console.log('Notification permission not yet requested');
-            break;
-    }
-}
-
-function setupNotificationListener() {
-    if (notificationCheckInterval) clearInterval(notificationCheckInterval);
-    notificationCheckInterval = setInterval(function() {
-        checkForNewApplications();
-    }, 30000); // Check every 30 seconds
-}
-
-async function checkForNewApplications() {
-    if (document.visibilityState !== 'visible') {
-        try {
-            const user = getCurrentUser();
-            const apiClient = window.authAPI || window.appsAPI || window.apiService || window.gasAPI || null;
-            if (user && apiClient && typeof apiClient.getApplicationsCountForUser === 'function') {
-                const result = await apiClient.getApplicationsCountForUser(user.userName || user.fullName);
-                const count = (result && result.success && result.data && result.data.count) ? result.data.count : (typeof result === 'number' ? result : (result && result.count) ? result.count : 0);
-
-                if (count > lastAppCount) {
-                    showApplicationNotification(user.fullName || user.name, user.role, count);
-                    lastAppCount = count;
-                }
-            }
-        } catch (error) {
-            console.error('Error checking for new applications:', error);
-        }
-    }
-}
-
-function showApplicationNotification(userName, userRole, count) {
-    if (Notification.permission === "granted" && document.visibilityState !== 'visible') {
-        const notification = new Notification("New Application Assignment", {
-            body: `${userName} has ${count} new application(s) for your action${userRole ? ` as ${userRole}` : ''}`,
-            icon: "https://img.icons8.com/color/192/000000/loan.png",
-            tag: "loan-application",
-            requireInteraction: true
-        });
-
-        notification.onclick = function() {
-            window.focus();
-            notification.close();
-            refreshApplications();
-        };
-
-        setTimeout(() => { notification.close(); }, 10000);
+function updateBadgeCount(status, count) {
+    const badgeElement = document.getElementById(status + '-count');
+    if (badgeElement) {
+        badgeElement.textContent = count;
+        badgeElement.style.display = count > 0 ? 'inline-block' : 'none';
     }
 }
 
@@ -663,7 +503,6 @@ function refreshApplications() {
 window.showSection = showSection;
 window.refreshApplications = refreshApplications;
 window.logout = logout;
-window.showNewApplicationModal = showNewApplicationModal;
 window.showSuccessModal = showSuccessModal;
 window.closeSuccessModal = closeSuccessModal;
 window.showErrorModal = showErrorModal;
@@ -673,6 +512,5 @@ window.closeConfirmationModal = closeConfirmationModal;
 window.updateWelcomeStats = updateWelcomeStats;
 window.showLoading = showLoading;
 window.hideLoading = hideLoading;
-window.showWarning = showWarning;
 
 console.log('Main.js initialized successfully');
