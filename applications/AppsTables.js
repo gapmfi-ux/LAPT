@@ -8,6 +8,28 @@ let applicationsData = {
     approved: []
 };
 
+/* ---- Wait for API globals to become available (avoid race conditions) ---- */
+async function ensureAPIAvailable(timeoutMs = 3000) {
+    const start = Date.now();
+    const check = () => {
+        return !!(window.appsAPI || window.apiService || window.gasAPI || window.newAppAPI || window.viewAppAPI);
+    };
+
+    if (check()) return true;
+
+    return new Promise(resolve => {
+        const iv = setInterval(() => {
+            if (check()) {
+                clearInterval(iv);
+                resolve(true);
+            } else if (Date.now() - start > timeoutMs) {
+                clearInterval(iv);
+                resolve(false);
+            }
+        }, 100);
+    });
+}
+
 function initializeApplicationsSection(sectionId = 'new') {
     currentSection = sectionId;
 
@@ -52,13 +74,6 @@ function debugLogResponse(sectionId, result) {
 }
 
 function extractApplicationsArray(result) {
-    // Handles many shapes:
-    // - plain array
-    // - { success: true, data: [...] }
-    // - { data: { items: [...] } } or data.rows, data.items, data.applications
-    // - { result: { data: [...] } }
-    // - single object representing one application
-
     if (!result) return [];
 
     if (Array.isArray(result)) return result;
@@ -67,21 +82,18 @@ function extractApplicationsArray(result) {
 
     if (Array.isArray(result.data)) return result.data;
 
-    // Some backends return nested containers
     if (result.data && typeof result.data === 'object') {
         const possibleArrays = ['items', 'rows', 'applications', 'values', 'data'];
         for (const k of possibleArrays) {
             if (Array.isArray(result.data[k])) return result.data[k];
         }
-        // maybe data itself holds an object where each key is an app (unlikely) — skip
     }
 
     if (result.result && Array.isArray(result.result.data)) return result.result.data;
     if (result.result && Array.isArray(result.result)) return result.result;
 
-    // If object looks like a single application (has any app-like key) return single-element array
+    // If object looks like a single application (has app-like keys) return single-element array
     if (typeof result === 'object') {
-        // detect common fields that indicate an application object
         const keys = Object.keys(result).map(k => k.toLowerCase());
         const appIndicators = ['appnumber', 'app_number', 'appnum', 'name', 'applicant', 'amount'];
         if (appIndicators.some(i => keys.includes(i))) {
@@ -95,9 +107,7 @@ function extractApplicationsArray(result) {
 function pickField(obj, candidates = []) {
     if (!obj || typeof obj !== 'object') return undefined;
     for (const c of candidates) {
-        // exact
         if (c in obj) return obj[c];
-        // case-insensitive
         const matchKey = Object.keys(obj).find(k => k.toLowerCase() === c.toLowerCase());
         if (matchKey) return obj[matchKey];
     }
@@ -107,10 +117,9 @@ function pickField(obj, candidates = []) {
 function normalizeApplication(raw) {
     if (!raw || typeof raw !== 'object') return null;
 
-    // canonical fields we want
     const app = {};
 
-    app.appNumber = pickField(raw, ['appNumber', 'app_number', 'ApplicationNumber', 'applicationNumber', 'appNo', 'app']);
+    app.appNumber = pickField(raw, ['appNumber', 'app_number', 'ApplicationNumber', 'applicationNumber', 'appNo', 'app', 'id']);
     app.applicantName = pickField(raw, ['applicantName', 'name', 'applicant', 'applicant_name']);
     app.name = app.applicantName || pickField(raw, ['name', 'applicantName']);
     app.amount = pickField(raw, ['amount', 'loanAmount', 'loan_amount', 'Amount']);
@@ -121,21 +130,13 @@ function normalizeApplication(raw) {
     app.lastUpdatedBy = pickField(raw, ['lastUpdatedBy', 'last_updated_by', 'lastUpdated']);
     app.purpose = pickField(raw, ['purpose', 'Purpose']);
 
-    // If amount is nested (e.g., inside data.amount.value)
     if ((app.amount === undefined || app.amount === null) && raw.amount && typeof raw.amount === 'object') {
         const v = pickField(raw.amount, ['value', 'amount']);
         if (v !== undefined) app.amount = v;
     }
 
-    // Final fallbacks
     if (!app.appNumber) {
-        // try other likely keys
-        app.appNumber = pickField(raw, ['id', 'Id', 'applicationId', 'application_number']);
-    }
-
-    // If still missing appNumber, create a placeholder using name+timestamp so UI won't break
-    if (!app.appNumber) {
-        app.appNumber = (app.applicantName ? String(app.applicantName).slice(0, 12) : 'APP') + '-' + (Math.random().toString(36).slice(2, 8));
+        app.appNumber = pickField(raw, ['id', 'applicationId', 'application_number']) || (app.applicantName ? String(app.applicantName).slice(0, 12) : 'APP') + '-' + (Math.random().toString(36).slice(2, 8));
         console.warn('AppsTables: generated fallback appNumber for record', app);
     }
 
@@ -175,12 +176,20 @@ async function loadApplicationsData(sectionId) {
         </tr>
     `;
 
+    // Wait briefly for API globals to appear to avoid race conditions
+    const apiReady = await ensureAPIAvailable(3000);
+    if (!apiReady) {
+        console.warn('AppsTables: API not available after wait - proceeding with empty response');
+    }
+
     try {
         let result;
         const apiClient = window.appsAPI || window.gasAPI || window.newAppAPI || window.viewAppAPI || window.apiService || null;
 
-        // Preferred direct method calls if available
-        if (apiClient) {
+        if (!apiClient) {
+            console.warn('No API client available - returning empty list for', sectionId);
+            result = [];
+        } else {
             try {
                 if (sectionId === 'new' && typeof apiClient.getNewApplications === 'function') {
                     result = await apiClient.getNewApplications();
@@ -191,7 +200,6 @@ async function loadApplicationsData(sectionId) {
                 } else if (sectionId === 'approved' && typeof apiClient.getApprovedApplications === 'function') {
                     result = await apiClient.getApprovedApplications();
                 } else if (typeof apiClient.request === 'function') {
-                    // Fallback to generic request(action)
                     const actionMap = {
                         new: 'getNewApplications',
                         pending: 'getPendingApplications',
@@ -207,10 +215,6 @@ async function loadApplicationsData(sectionId) {
                 console.warn('API call failed:', err);
                 result = [];
             }
-        } else {
-            // No API available
-            console.warn('No API client available - returning empty list for', sectionId);
-            result = [];
         }
 
         // Debug log raw response
@@ -223,7 +227,6 @@ async function loadApplicationsData(sectionId) {
         const applications = rawApps.map(r => {
             const normalized = normalizeApplication(r);
             if (!normalized) {
-                // If normalizeApplication fails, still return a minimal object
                 return {
                     appNumber: (r && r.appNumber) || JSON.stringify(r).slice(0, 24),
                     applicantName: (r && (r.name || r.applicantName)) || 'N/A',
