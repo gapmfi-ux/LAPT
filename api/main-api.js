@@ -59,9 +59,9 @@ class APILoader {
 document.addEventListener('DOMContentLoaded', function() {
   if (!window.apiLoader) {
     window.apiLoader = new APILoader();
-    
-    // Initialize and create global APIs
-    window.apiLoader.initialize().then(success => {
+
+    // IMPORTANT: publish a global promise so other scripts can await API readiness
+    window.apiReadyPromise = window.apiLoader.initialize().then(success => {
       if (success) {
         console.log('All API modules initialized successfully');
       } else {
@@ -82,12 +82,17 @@ document.addEventListener('DOMContentLoaded', function() {
       window.utilsAPI = apis.utils;
       
       console.log('Loan Application Tracker APIs loaded successfully');
+
+      return true;
     }).catch(error => {
       console.error('Failed to initialize APIs:', error);
       
       // Still create APIs in offline mode
       window.apiService = new ApiService();
       window.gasAPI = window.apiService;
+
+      // resolve anyway so waiting code doesn't hang forever
+      return false;
     });
   }
 });
