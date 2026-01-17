@@ -74,6 +74,80 @@ function safeSetText(id, text) {
   if (el) el.textContent = text;
 }
 
+/* ---- Helper: ensure modal HTML is in DOM (fetch + inject if missing) ---- */
+function ensureModalInDOM() {
+  return new Promise((resolve, reject) => {
+    const existing = document.getElementById('newApplicationModal');
+    if (existing) {
+      return resolve(true);
+    }
+
+    // Fetch the modal HTML and inject it; also execute inline scripts found within
+    const url = 'new-application/newApps.html';
+    console.log('newApps.js: #newApplicationModal not found, fetching', url);
+
+    fetch(url, { cache: 'no-store' })
+      .then(response => {
+        if (!response.ok) throw new Error(`Failed to load ${url}: ${response.status} ${response.statusText}`);
+        return response.text();
+      })
+      .then(htmlText => {
+        try {
+          // Parse HTML so we can extract scripts safely
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(htmlText, 'text/html');
+
+          // Move body children into a container and append to document.body
+          const container = document.createElement('div');
+          // Copy over non-script nodes
+          Array.from(doc.body.childNodes).forEach(node => {
+            if (node.tagName && node.tagName.toLowerCase() === 'script') {
+              // skip here, handle scripts separately
+            } else {
+              container.appendChild(document.importNode(node, true));
+            }
+          });
+          document.body.appendChild(container);
+
+          // Now execute inline scripts from the fetched HTML (in order)
+          const scripts = Array.from(doc.querySelectorAll('script'));
+          scripts.forEach(s => {
+            const newScript = document.createElement('script');
+            if (s.src) {
+              // External script: set src to load it
+              newScript.src = s.src;
+              // preserve async/eager loading order by using onload chaining if necessary
+              newScript.async = false;
+              document.body.appendChild(newScript);
+            } else {
+              // Inline script: copy textContent to a new script element so it executes
+              newScript.textContent = s.textContent;
+              document.body.appendChild(newScript);
+            }
+          });
+
+          // Slight delay to allow appended external scripts to execute
+          setTimeout(() => {
+            const nowExists = document.getElementById('newApplicationModal');
+            if (nowExists) {
+              console.log('newApps.js: injected newApplicationModal into DOM');
+              resolve(true);
+            } else {
+              // If the HTML didn't include the element, that's an error
+              reject(new Error('Injected HTML did not create #newApplicationModal'));
+            }
+          }, 50);
+        } catch (err) {
+          reject(err);
+        }
+      })
+      .catch(err => {
+        console.error('Error injecting new application modal HTML:', err);
+        reject(err);
+      });
+  });
+}
+
 /* ---- Reset modal ---- */
 function resetNewApplicationModal() {
   const inputs = document.querySelectorAll('#newApplicationModal input, #newApplicationModal textarea');
@@ -107,7 +181,39 @@ function resetNewApplicationModal() {
 /* ---- Show / New application modal ---- */
 function showNewApplicationModal(existingAppNumber = null) {
   console.log('showNewApplicationModal called with:', existingAppNumber);
-  
+
+  // If modal not in DOM, ensure it's injected first
+  ensureModalInDOM()
+    .then(() => {
+      // proceed after ensuring modal exists
+      _showNewApplicationModalCore(existingAppNumber);
+    })
+    .catch(err => {
+      console.warn('getNewApplicationContext: failed to inject modal HTML:', err);
+      // If injection failed, still attempt to call API (previous behavior)
+      if (existingAppNumber) {
+        loadExistingApplication(existingAppNumber);
+      } else {
+        if (typeof showLoading === 'function') showLoading('Preparing application...');
+        callApiMethod('getNewApplicationContext', {})
+          .then(ctx => {
+            if (typeof hideLoading === 'function') hideLoading();
+            let appCtx = ctx;
+            if (ctx && ctx.success && ctx.data) appCtx = ctx.data;
+            window.currentAppNumber = appCtx?.appNumber || appCtx;
+            window.currentAppFolderId = appCtx?.folderId || '';
+            alert('Could not display the application form. The new application context has been created: ' + (window.currentAppNumber || ''));
+          })
+          .catch(e => {
+            if (typeof hideLoading === 'function') hideLoading();
+            console.error('Fallback getNewApplicationContext failed:', e);
+            alert('Could not start a new application: ' + (e.message || e));
+          });
+      }
+    });
+}
+
+function _showNewApplicationModalCore(existingAppNumber) {
   if (existingAppNumber) {
     loadExistingApplication(existingAppNumber);
     return;
@@ -131,17 +237,16 @@ function showNewApplicationModal(existingAppNumber = null) {
       const modal = document.getElementById('newApplicationModal');
       if (modal) {
         console.log('Modal found, showing it...');
-        
-        // FIXED: Use CSS class system instead of inline style
+
+        // Use CSS class system instead of inline style
         modal.classList.add('active');
-        // Also set display block for browsers that need it
         modal.style.display = 'block';
-        
+
         // Force reflow and opacity transition
         setTimeout(() => {
           modal.style.opacity = '1';
         }, 10);
-        
+
         resetNewApplicationModal();
         const requestedTab = sessionStorage.getItem('editTab');
         if (requestedTab) {
@@ -150,13 +255,16 @@ function showNewApplicationModal(existingAppNumber = null) {
         } else {
           openTab('tab1');
         }
-        
+
         // Call initialization if available
         if (window.newApplicationModalInit) {
-          window.newApplicationModalInit();
+          try { window.newApplicationModalInit(); } catch (e) { console.warn(e); }
+        }
+        if (typeof initNewApplicationScripts === 'function') {
+          try { initNewApplicationScripts(); } catch (e) { console.warn(e); }
         }
       } else {
-        console.error('Modal not found! Looking for #newApplicationModal');
+        console.error('Modal still not found after injection! Looking for #newApplicationModal');
       }
     })
     .catch(err => {
@@ -170,6 +278,19 @@ function showNewApplicationModal(existingAppNumber = null) {
 function loadExistingApplication(appNumber) {
   console.log('Loading existing application:', appNumber);
 
+  // Ensure modal is in DOM before populating
+  ensureModalInDOM()
+    .then(() => {
+      _loadExistingApplicationCore(appNumber);
+    })
+    .catch(err => {
+      console.warn('Failed to ensure modal DOM for editing:', err);
+      // fallback attempt anyway
+      _loadExistingApplicationCore(appNumber);
+    });
+}
+
+function _loadExistingApplicationCore(appNumber) {
   if (typeof showLoading === 'function') showLoading('Loading application...');
 
   const userName = localStorage.getItem('loggedInName') || '';
@@ -197,14 +318,14 @@ function loadExistingApplication(appNumber) {
         const modal = document.getElementById('newApplicationModal');
         if (modal) {
           console.log('Modal found for editing, showing it...');
-          
-          // FIXED: Use CSS class system
+
+          // Use CSS class system
           modal.classList.add('active');
           modal.style.display = 'block';
           setTimeout(() => {
             modal.style.opacity = '1';
           }, 10);
-          
+
           const requestedTab = sessionStorage.getItem('editTab');
           if (requestedTab) {
             openTab(requestedTab);
@@ -212,9 +333,12 @@ function loadExistingApplication(appNumber) {
           } else {
             openTab('tab1');
           }
-          
+
           if (window.newApplicationModalInit) {
-            window.newApplicationModalInit();
+            try { window.newApplicationModalInit(); } catch (e) { console.warn(e); }
+          }
+          if (typeof initNewApplicationScripts === 'function') {
+            try { initNewApplicationScripts(); } catch (e) { console.warn(e); }
           }
         }
 
@@ -236,10 +360,10 @@ function closeModal() {
   console.log('Closing modal...');
   const modal = document.getElementById('newApplicationModal');
   if (modal) {
-    // FIXED: Remove active class and fade out
+    // Remove active class and fade out
     modal.classList.remove('active');
     modal.style.opacity = '0';
-    
+
     // Wait for opacity transition before hiding completely
     setTimeout(() => {
       modal.style.display = 'none';
