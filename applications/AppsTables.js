@@ -1,5 +1,4 @@
-[file name]: AppsTables.js
-[file content begin]
+
 // Applications Tables - hybrid backend transport (google.script.run OR appsAPI)
 // Restores the user's populateTable semantics and uses google.script.run when available,
 // otherwise falls back to the window.appsAPI / window.apiService transport.
@@ -353,4 +352,3 @@ window.callBackendAction = callBackendAction;
 document.addEventListener('DOMContentLoaded', function() {
   console.log('AppsTables.js loaded and ready');
 });
-[file content end]
