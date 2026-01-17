@@ -1,556 +1,286 @@
-// Applications Tables JS (resilient API calls & robust data normalization)
+// Applications Tables - hybrid backend transport (google.script.run OR appsAPI)
+// Restores the user's populateTable semantics and uses google.script.run when available,
+// otherwise falls back to the window.appsAPI / window.apiService transport.
 
-let currentSection = 'new';
-let applicationsData = {
-    new: [],
-    pending: [],
-    pendingApprovals: [],
-    approved: []
-};
+'use strict';
 
-/* ---- Wait for API globals to become available (avoid race conditions) ---- */
-async function ensureAPIAvailable(timeoutMs = 5000) {
-    const start = Date.now();
-
-    // If the app publishes apiReadyPromise, await it first (preferred)
-    if (window.apiReadyPromise && typeof window.apiReadyPromise.then === 'function') {
-        try {
-            // Wait for the apiReadyPromise, but don't exceed timeoutMs
-            await Promise.race([
-                window.apiReadyPromise,
-                new Promise((_, reject) => setTimeout(() => reject(new Error('apiReadyPromise timeout')), timeoutMs))
-            ]);
-            return !!(window.appsAPI || window.apiService || window.gasAPI || window.newAppAPI || window.viewAppAPI);
-        } catch (err) {
-            console.warn('AppsTables: apiReadyPromise did not resolve within timeout:', err);
-            // fall through to polling below (remaining time)
-        }
-    }
-
-    // Poll for any API globals if promise either not present or timed out
-    const check = () => {
-        return !!(window.appsAPI || window.apiService || window.gasAPI || window.newAppAPI || window.viewAppAPI);
-    };
-
-    if (check()) return true;
-
-    return new Promise(resolve => {
-        const iv = setInterval(() => {
-            if (check()) {
-                clearInterval(iv);
-                resolve(true);
-            } else if (Date.now() - start > timeoutMs) {
-                clearInterval(iv);
-                resolve(false);
-            }
-        }, 100);
-    });
-}
-function initializeApplicationsSection(sectionId = 'new') {
-    currentSection = sectionId;
-
-    // Show appropriate section
-    showSection(sectionId);
-
-    // Load applications data
-    loadApplicationsData(sectionId);
-
-    // Setup event listeners
-    setupEventListeners();
-}
-
-function showSection(sectionId) {
-    currentSection = sectionId;
-
-    // Hide all sections
-    const sections = document.querySelectorAll('.content-section');
-    sections.forEach(section => {
-        section.classList.remove('active');
-    });
-
-    // Show selected section
-    const activeSection = document.getElementById(sectionId);
-    if (activeSection) {
-        activeSection.classList.add('active');
-    }
-
-    // Load data for the section
-    loadApplicationsData(sectionId);
-}
-
-/* ---- Helpers: normalize and map backend responses ---- */
-function debugLogResponse(sectionId, result) {
-    try {
-        console.group(`AppsTables: response for "${sectionId}"`);
-        console.log('Raw result:', result);
-        console.groupEnd();
-    } catch (e) {
-        console.log('AppsTables: (unable to pretty print response)', result);
-    }
-}
-
-function extractApplicationsArray(result) {
-    if (!result) return [];
-
-    if (Array.isArray(result)) return result;
-
-    if (result.success && Array.isArray(result.data)) return result.data;
-
-    if (Array.isArray(result.data)) return result.data;
-
-    if (result.data && typeof result.data === 'object') {
-        const possibleArrays = ['items', 'rows', 'applications', 'values', 'data'];
-        for (const k of possibleArrays) {
-            if (Array.isArray(result.data[k])) return result.data[k];
-        }
-    }
-
-    if (result.result && Array.isArray(result.result.data)) return result.result.data;
-    if (result.result && Array.isArray(result.result)) return result.result;
-
-    // If object looks like a single application (has app-like keys) return single-element array
-    if (typeof result === 'object') {
-        const keys = Object.keys(result).map(k => k.toLowerCase());
-        const appIndicators = ['appnumber', 'app_number', 'appnum', 'name', 'applicant', 'amount'];
-        if (appIndicators.some(i => keys.includes(i))) {
-            return [result];
-        }
-    }
-
-    return [];
-}
-
-function pickField(obj, candidates = []) {
-    if (!obj || typeof obj !== 'object') return undefined;
-    for (const c of candidates) {
-        if (c in obj) return obj[c];
-        const matchKey = Object.keys(obj).find(k => k.toLowerCase() === c.toLowerCase());
-        if (matchKey) return obj[matchKey];
-    }
-    return undefined;
-}
-
-function normalizeApplication(raw) {
-    if (!raw || typeof raw !== 'object') return null;
-
-    const app = {};
-
-    app.appNumber = pickField(raw, ['appNumber', 'app_number', 'ApplicationNumber', 'applicationNumber', 'appNo', 'app', 'id']);
-    app.applicantName = pickField(raw, ['applicantName', 'name', 'applicant', 'applicant_name']);
-    app.name = app.applicantName || pickField(raw, ['name', 'applicantName']);
-    app.amount = pickField(raw, ['amount', 'loanAmount', 'loan_amount', 'Amount']);
-    app.date = pickField(raw, ['date', 'createdAt', 'created_at', 'Date']);
-    app.actionBy = pickField(raw, ['actionBy', 'action_by', 'actionByName', 'actionByUser']);
-    app.status = pickField(raw, ['status', 'Status', 'applicationStatus']);
-    app.stage = pickField(raw, ['stage', 'Stage']);
-    app.lastUpdatedBy = pickField(raw, ['lastUpdatedBy', 'last_updated_by', 'lastUpdated']);
-    app.purpose = pickField(raw, ['purpose', 'Purpose']);
-
-    if ((app.amount === undefined || app.amount === null) && raw.amount && typeof raw.amount === 'object') {
-        const v = pickField(raw.amount, ['value', 'amount']);
-        if (v !== undefined) app.amount = v;
-    }
-
-    if (!app.appNumber) {
-        app.appNumber = pickField(raw, ['id', 'applicationId', 'application_number']) || (app.applicantName ? String(app.applicantName).slice(0, 12) : 'APP') + '-' + (Math.random().toString(36).slice(2, 8));
-        console.warn('AppsTables: generated fallback appNumber for record', app);
-    }
-
-    return app;
-}
-
-/* ---- Main data loader ---- */
-async function loadApplicationsData(sectionId) {
-    let tableId;
-
-    switch(sectionId) {
-        case 'new':
-            tableId = 'new-list';
-            break;
-        case 'pending':
-            tableId = 'pending-list';
-            break;
-        case 'pending-approvals':
-            tableId = 'pending-approvals-list';
-            break;
-        case 'approved':
-            tableId = 'approved-list';
-            break;
-        default:
-            return;
-    }
-
-    const tbody = document.getElementById(tableId);
-    if (!tbody) return;
-
-    // Show loading state
-    tbody.innerHTML = `
-        <tr>
-            <td colspan="5" class="loading">
-                <i class="fas fa-spinner fa-spin"></i> Loading applications...
-            </td>
-        </tr>
-    `;
-
-    // Wait briefly for API globals to appear to avoid race conditions
-    const apiReady = await ensureAPIAvailable(3000);
-    if (!apiReady) {
-        console.warn('AppsTables: API not available after wait - proceeding with empty response');
-    }
-
-    try {
-        let result;
-        const apiClient = window.appsAPI || window.gasAPI || window.newAppAPI || window.viewAppAPI || window.apiService || null;
-
-        if (!apiClient) {
-            console.warn('No API client available - returning empty list for', sectionId);
-            result = [];
-        } else {
-            try {
-                if (sectionId === 'new' && typeof apiClient.getNewApplications === 'function') {
-                    result = await apiClient.getNewApplications();
-                } else if (sectionId === 'pending' && typeof apiClient.getPendingApplications === 'function') {
-                    result = await apiClient.getPendingApplications();
-                } else if (sectionId === 'pending-approvals' && typeof apiClient.getPendingApprovalApplications === 'function') {
-                    result = await apiClient.getPendingApprovalApplications();
-                } else if (sectionId === 'approved' && typeof apiClient.getApprovedApplications === 'function') {
-                    result = await apiClient.getApprovedApplications();
-                } else if (typeof apiClient.request === 'function') {
-                    const actionMap = {
-                        new: 'getNewApplications',
-                        pending: 'getPendingApplications',
-                        'pending-approvals': 'getPendingApprovalApplications',
-                        approved: 'getApprovedApplications'
-                    };
-                    const action = actionMap[sectionId];
-                    result = await apiClient.request(action);
-                } else {
-                    result = [];
-                }
-            } catch (err) {
-                console.warn('API call failed:', err);
-                result = [];
-            }
-        }
-
-        // Debug log raw response
-        debugLogResponse(sectionId, result);
-
-        // Normalize result to array of raw application objects
-        const rawApps = extractApplicationsArray(result);
-
-        // Map and normalize fields for each application
-        const applications = rawApps.map(r => {
-            const normalized = normalizeApplication(r);
-            if (!normalized) {
-                return {
-                    appNumber: (r && r.appNumber) || JSON.stringify(r).slice(0, 24),
-                    applicantName: (r && (r.name || r.applicantName)) || 'N/A',
-                    amount: r && (r.amount || r.Amount) || 0,
-                    date: r && (r.date || r.Date || r.createdAt) || '',
-                    actionBy: r && (r.actionBy || r.action_by) || ''
-                };
-            }
-            return normalized;
-        });
-
-        // Store data
-        applicationsData[sectionId] = applications;
-
-        // Render table
-        renderApplicationsTable(tableId, applications);
-
-    } catch (error) {
-        console.error(`Error loading ${sectionId} applications:`, error);
-        tbody.innerHTML = `
-            <tr>
-                <td colspan="5" class="error">
-                    <i class="fas fa-exclamation-triangle"></i> Error loading applications: ${error.message || error}
-                </td>
-            </tr>
-        `;
-    }
-}
-
-function renderApplicationsTable(tableId, applications) {
-    const tbody = document.getElementById(tableId);
-    if (!tbody) return;
-
-    if (!applications || applications.length === 0) {
-        tbody.innerHTML = `
-            <tr>
-                <td colspan="5" class="no-data">
-                    <i class="fas fa-inbox"></i> No applications found
-                </td>
-            </tr>
-        `;
-        return;
-    }
-
-    // Ensure escapeHtml and format helpers exist; provide minimal fallbacks
-    const escapeHtmlSafe = typeof escapeHtml === 'function' ? escapeHtml : (s) => {
-        if (s === undefined || s === null) return '';
-        return String(s).replace(/[&<>"'`=\/]/g, function (c) {
-            return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','/':'&#x2F;','`':'&#x60;','=':'&#x3D;'}[c];
-        });
-    };
-    const formatSafe = typeof format === 'object' && format ? format : {
-        currency: (v) => v == null ? '' : (Number(v).toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })),
-        date: (d) => {
-            if (!d) return '';
-            try {
-                const dd = new Date(d);
-                return isNaN(dd.getTime()) ? String(d) : dd.toLocaleDateString();
-            } catch (e) { return String(d); }
-        }
-    };
-
-    tbody.innerHTML = applications.map(app => `
-        <tr>
-            <td class="app-number">
-                <a href="javascript:void(0)" class="app-number-link" onclick="handleAppNumberClick('${escapeHtmlSafe(app.appNumber || '')}')">
-                    <i class="fas fa-file-invoice"></i> ${escapeHtmlSafe(app.appNumber || 'N/A')}
-                </a>
-            </td>
-            <td class="applicant-name">${escapeHtmlSafe(app.applicantName || app.name || 'N/A')}</td>
-            <td class="amount">${formatSafe.currency(app.amount)}</td>
-            <td class="date">${formatSafe.date(app.date)}</td>
-            <td class="action-by">${escapeHtmlSafe(app.actionBy || 'N/A')}</td>
-        </tr>
-    `).join('');
-}
-
-function setupEventListeners() {
-    // Setup click handlers for app numbers (delegated)
-    document.addEventListener('click', function(e) {
-        const el = e.target.closest && e.target.closest('.app-number-link');
-        if (el) {
-            const appNumber = el.getAttribute('onclick') ? (el.getAttribute('onclick').match(/handleAppNumberClick\('([^']+)'\)/) || [null, el.textContent.trim()])[1] : el.textContent.trim();
-            if (appNumber) handleAppNumberClick(appNumber);
-        }
-    });
-
-    // Setup keyboard shortcuts
-    document.addEventListener('keydown', function(e) {
-        if (e.key === 'r' && e.ctrlKey) {
-            e.preventDefault();
-            refreshApplications();
-        }
-    });
-}
-
-function refreshApplications() {
-    loadApplicationsData(currentSection);
-
-    // Also refresh badge counts
-    if (typeof updateBadgeCounts === 'function') {
-        updateBadgeCounts();
-    }
-
-    // Show success message
-    if (typeof showSuccessModal === 'function') {
-        showSuccessModal('Applications list refreshed');
-    }
-}
-
-function showApplicationPreview(appData) {
-    const escapeHtmlSafe = typeof escapeHtml === 'function' ? escapeHtml : (s) => s == null ? '' : String(s).replace(/[&<>"'`=\/]/g, function (c) {
-        return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','/':'&#x2F;','`':'&#x60;','=':'&#x3D;'}[c];
-    });
-    const formatSafe = typeof format === 'object' && format ? format : {
-        currency: (v) => v == null ? '' : (Number(v).toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })),
-        date: (d) => {
-            if (!d) return '';
-            try {
-                const dd = new Date(d);
-                return isNaN(dd.getTime()) ? String(d) : dd.toLocaleDateString();
-            } catch (e) { return String(d); }
-        }
-    };
-
-    const previewHtml = `
-        <div class="app-preview" id="app-preview" tabindex="-1" style="display:flex;">
-            <div class="preview-card">
-                <div class="preview-header">
-                    <h3><i class="fas fa-file-alt"></i> Application Preview</h3>
-                    <button class="preview-close" onclick="closeApplicationPreview()">
-                        <i class="fas fa-times"></i>
-                    </button>
-                </div>
-                <div class="preview-content">
-                    <div class="preview-grid">
-                        <div class="preview-item">
-                            <span class="preview-label">Application Number:</span>
-                            <span class="preview-value app-number-value">${escapeHtmlSafe(appData.appNumber || '')}</span>
-                        </div>
-                        <div class="preview-item">
-                            <span class="preview-label">Applicant Name:</span>
-                            <span class="preview-value">${escapeHtmlSafe(appData.applicantName || appData.name || 'N/A')}</span>
-                        </div>
-                        <div class="preview-item">
-                            <span class="preview-label">Amount:</span>
-                            <span class="preview-value amount-value">${formatSafe.currency(appData.amount)}</span>
-                        </div>
-                        <div class="preview-item">
-                            <span class="preview-label">Date:</span>
-                            <span class="preview-value">${formatSafe.date(appData.date)}</span>
-                        </div>
-                        <div class="preview-item">
-                            <span class="preview-label">Status:</span>
-                            <span class="preview-value status-badge ${getStatusBadgeClass(appData.status)}">
-                                ${escapeHtmlSafe(appData.status || 'N/A')}
-                            </span>
-                        </div>
-                        <div class="preview-item">
-                            <span class="preview-label">Stage:</span>
-                            <span class="preview-value">${escapeHtmlSafe(appData.stage || 'N/A')}</span>
-                        </div>
-                        <div class="preview-item">
-                            <span class="preview-label">Action By:</span>
-                            <span class="preview-value">${escapeHtmlSafe(appData.actionBy || 'N/A')}</span>
-                        </div>
-                        <div class="preview-item">
-                            <span class="preview-label">Last Updated By:</span>
-                            <span class="preview-value">${escapeHtmlSafe(appData.lastUpdatedBy || 'N/A')}</span>
-                        </div>
-                    </div>
-
-                    ${appData.purpose ? `
-                    <div class="preview-section">
-                        <h4><i class="fas fa-bullseye"></i> Purpose</h4>
-                        <p>${escapeHtmlSafe(appData.purpose)}</p>
-                    </div>
-                    ` : ''}
-                </div>
-                <div class="preview-actions">
-                    <button class="btn-secondary" onclick="closeApplicationPreview()">
-                        Close
-                    </button>
-                    <button class="btn-primary" onclick="viewApplicationDetails('${escapeHtmlSafe(appData.appNumber || '')}')">
-                        <i class="fas fa-external-link-alt"></i> View Full Details
-                    </button>
-                </div>
-            </div>
-        </div>
-    `;
-
-    // Remove existing preview if any
-    const existingPreview = document.getElementById('app-preview');
-    if (existingPreview) {
-        existingPreview.remove();
-    }
-
-    // Add to document
-    document.body.insertAdjacentHTML('beforeend', previewHtml);
-
-    // Show preview
-    const preview = document.getElementById('app-preview');
-    if (preview) {
-        preview.style.display = 'flex';
-
-        // Close on escape key
-        preview.addEventListener('keydown', function(e) {
-            if (e.key === 'Escape') {
-                closeApplicationPreview();
-            }
-        });
-
-        // Close on background click
-        preview.addEventListener('click', function(e) {
-            if (e.target === preview) {
-                closeApplicationPreview();
-            }
-        });
-
-        // Focus on preview
-        preview.focus();
-    }
-}
-
-function closeApplicationPreview() {
-    const preview = document.getElementById('app-preview');
-    if (preview) {
-        preview.remove();
-    }
-}
-
+// ----------- TABLES & APPLICATION LISTING -----------
+// Improved populateTable to support hidden/background refresh (no flicker) and smoother DOM updates.
+// Call populateTable(tableId, statusFunctionName, { showLoading: true|false })
 function getStatusBadgeClass(status) {
-    const statusMap = {
-        'DRAFT': 'status-draft',
-        'NEW': 'status-new',
-        'PENDING': 'status-pending',
-        'PENDING APPROVAL': 'status-pending-approval',
-        'APPROVED': 'status-approved',
-        'COMPLETE': 'status-approved'
-    };
-    return statusMap[status] || 'status-pending';
+  const statusMap = {
+    'DRAFT': 'status-draft',
+    'NEW': 'status-new',
+    'PENDING': 'status-pending',
+    'PENDING APPROVAL': 'status-pending',
+    'APPROVED': 'status-approved',
+    'COMPLETE': 'status-approved'
+  };
+  return statusMap[status] || 'status-pending';
 }
 
-/**
- * Handle click on an application number link.
- * Tries to use available API (viewAppAPI, gasAPI, appsAPI, apiService) to fetch details.
- * Falls back to a minimal preview if no API is available.
- */
-async function handleAppNumberClick(appNumber) {
+function callBackendAction(actionName, onSuccess, onFailure) {
+  // Prefer google.script.run if available (Apps Script environment)
+  if (window.google && google.script && google.script.run) {
     try {
-        if (!appNumber) return;
-
-        // Prefer higher-level API objects if available
-        const api = window.viewAppAPI || window.newAppAPI || window.appsAPI || window.gasAPI || window.apiService || null;
-
-        // If we have a method that returns full details
-        if (api && typeof api.getApplicationDetails === 'function') {
-            const user = (window.getCurrentUser && getCurrentUser()) || {};
-            const userName = user.userName || user.fullName || '';
-            const result = await api.getApplicationDetails(appNumber, userName);
-            if (result && result.success && result.data) {
-                showApplicationPreview(result.data);
-            } else if (result && result.appNumber) {
-                showApplicationPreview(result);
-            } else {
-                const msg = (result && result.message) ? result.message : 'Failed to load application details';
-                if (typeof showErrorModal === 'function') showErrorModal(msg);
-                else console.warn(msg);
-            }
-            return;
-        }
-
-        // Generic ApiService request() fallback
-        if (api && typeof api.request === 'function') {
-            try {
-                const resp = await api.request('getApplicationDetails', { appNumber });
-                if (resp && resp.success && resp.data) {
-                    showApplicationPreview(resp.data);
-                } else if (resp && resp.appNumber) {
-                    showApplicationPreview(resp);
-                } else {
-                    showApplicationPreview({ appNumber });
-                }
-            } catch (err) {
-                console.warn('API request failed:', err);
-                showApplicationPreview({ appNumber });
-            }
-            return;
-        }
-
-        // No API available — show minimal preview
-        console.warn('No API available to fetch application details. Showing minimal preview.');
-        showApplicationPreview({ appNumber });
-
+      // Use the typical pattern used previously
+      google.script.run
+        .withSuccessHandler(onSuccess)
+        .withFailureHandler(onFailure)[actionName]();
+      return;
     } catch (err) {
-        console.error('handleAppNumberClick error:', err);
-        if (typeof showErrorModal === 'function') showErrorModal(err.message || 'Error opening application');
+      // Fall through to api client fallback
+      console.warn('callBackendAction: google.script.run call failed, falling back to appsAPI', err);
     }
+  }
+
+  // Fallback: appsAPI / apiService
+  const apiClient = window.appsAPI || window.newAppAPI || window.viewAppAPI || window.gasAPI || window.apiService || null;
+  if (!apiClient) {
+    onFailure(new Error('No API client available'));
+    return;
+  }
+
+  // If the client has a named method, call it, otherwise use generic request
+  if (typeof apiClient[actionName] === 'function') {
+    try {
+      const res = apiClient[actionName]();
+      if (res && typeof res.then === 'function') {
+        res.then(onSuccess).catch(onFailure);
+      } else {
+        // synchronous return
+        onSuccess(res);
+      }
+    } catch (err) {
+      onFailure(err);
+    }
+    return;
+  }
+
+  if (typeof apiClient.request === 'function') {
+    apiClient.request(actionName)
+      .then(onSuccess)
+      .catch(onFailure);
+    return;
+  }
+
+  onFailure(new Error('API client does not support the requested action: ' + actionName));
 }
 
-// Make functions globally available
-window.initializeApplicationsSection = initializeApplicationsSection;
-window.showSection = showSection;
-window.refreshApplications = refreshApplications;
+function populateTable(tableId, statusFunctionName, options = {}) {
+  const { showLoading = true } = options;
+  const tbody = document.querySelector(`#${tableId}`);
+  if (!tbody) {
+    console.error(`Table body not found: ${tableId}`);
+    return;
+  }
+
+  // If explicit loading requested (initial/manual), show placeholder.
+  if (showLoading) {
+    tbody.innerHTML = `<tr><td colspan="5" class="loading"><i class="fas fa-spinner fa-spin"></i> Loading applications...</td></tr>`;
+  } else {
+    // For background refreshes, keep existing rows visible but mark busy for subtle UI hint.
+    tbody.setAttribute('aria-busy', 'true');
+    tbody.style.opacity = '0.7';
+  }
+
+  const onSuccess = function(data) {
+    // Clear busy state
+    tbody.removeAttribute('aria-busy');
+    tbody.style.opacity = '1';
+
+    // Normalize data: many backends return { success, data } or raw array
+    let rows = [];
+    if (!data) rows = [];
+    else if (Array.isArray(data)) rows = data;
+    else if (data.success && Array.isArray(data.data)) rows = data.data;
+    else if (Array.isArray(data.data)) rows = data.data;
+    else if (data && typeof data === 'object' && Object.keys(data).length && ('appNumber' in data || 'app_number' in data || 'id' in data)) rows = [data];
+    else rows = [];
+
+    const filteredData = rows.filter(row => row && row.appNumber && row.appNumber.toString().trim());
+
+    // Build rows via DOM to avoid innerHTML flicker
+    if (!filteredData.length) {
+      // If no data, show a no-data row
+      tbody.innerHTML = `<tr><td colspan="5" class="no-data"><i class="fas fa-inbox"></i> No applications found</td></tr>`;
+      return;
+    }
+
+    const fragment = document.createDocumentFragment();
+    filteredData.forEach(row => {
+      const appNumber = row.appNumber || row.applicationNumber || row.id || '';
+      const tr = document.createElement('tr');
+
+      // App number cell with link (attach event listener rather than inline onclick)
+      const tdApp = document.createElement('td');
+      tdApp.className = 'app-number';
+      const a = document.createElement('a');
+      a.href = 'javascript:void(0)';
+      a.className = 'app-number-link';
+      a.textContent = appNumber;
+      a.addEventListener('click', function() { handleAppNumberClick(appNumber); });
+      tdApp.appendChild(a);
+      tr.appendChild(tdApp);
+
+      // Applicant name
+      const tdName = document.createElement('td');
+      tdName.className = 'applicant-name';
+      tdName.textContent = row.applicantName || row.name || 'N/A';
+      tr.appendChild(tdName);
+
+      // Amount
+      const tdAmount = document.createElement('td');
+      tdAmount.className = 'amount';
+      try {
+        tdAmount.textContent = (typeof format !== 'undefined' && format && typeof format.currency === 'function')
+          ? format.currency(row.amount)
+          : (row.amount != null ? String(row.amount) : '');
+      } catch (e) {
+        tdAmount.textContent = row.amount != null ? String(row.amount) : '';
+      }
+      tr.appendChild(tdAmount);
+
+      // Date
+      const tdDate = document.createElement('td');
+      tdDate.className = 'date';
+      try {
+        tdDate.textContent = (typeof format !== 'undefined' && format && typeof format.date === 'function')
+          ? format.date(row.date)
+          : (row.date ? new Date(row.date).toLocaleDateString() : 'N/A');
+      } catch (e) {
+        tdDate.textContent = row.date ? String(row.date) : 'N/A';
+      }
+      tr.appendChild(tdDate);
+
+      // Action by
+      const tdActionBy = document.createElement('td');
+      tdActionBy.className = 'action-by';
+      tdActionBy.textContent = row.actionBy || row.action_by || 'N/A';
+      tr.appendChild(tdActionBy);
+
+      fragment.appendChild(tr);
+    });
+
+    // Replace children in one operation for smooth update
+    tbody.replaceChildren(fragment);
+  };
+
+  const onFailure = function(error) {
+    // Remove busy state
+    tbody.removeAttribute('aria-busy');
+    tbody.style.opacity = '1';
+
+    // If the table was previously empty, show an error row; otherwise keep existing rows intact.
+    if (!tbody.children.length) {
+      tbody.innerHTML = `<tr><td colspan="5" class="error">Error loading data: ${error?.message || 'Unknown error'}</td></tr>`;
+    } else {
+      console.error('Error populating table (background refresh kept existing rows):', error);
+      // Optionally: show transient toast / console message
+    }
+  };
+
+  // Trigger backend call using hybrid transport
+  callBackendAction(statusFunctionName, onSuccess, onFailure);
+}
+
+// ----------- UPDATED APPLICATION CLICK HANDLER -----------
+async function handleAppNumberClick(appNumber) {
+  if (!appNumber || appNumber === 'undefined' || appNumber === 'null') {
+    alert('Error: Invalid application number');
+    return;
+  }
+
+  const userName = localStorage.getItem('loggedInName') || '';
+
+  function openEdit(appNum) {
+    // Open in edit mode using existing modal function
+    if (typeof showNewApplicationModal === 'function') {
+      showNewApplicationModal(appNum);
+    } else {
+      console.warn('showNewApplicationModal not found');
+    }
+  }
+
+  function openView(appData) {
+    if (typeof openViewApplicationModal === 'function') {
+      openViewApplicationModal(appData);
+    } else {
+      // Fallback: show preview using existing preview UI if available
+      if (typeof showApplicationPreview === 'function') {
+        showApplicationPreview(appData);
+      } else {
+        alert('Application loaded. (No view modal available)');
+      }
+    }
+  }
+
+  // Show loading if available
+  if (typeof showLoading === 'function') showLoading('Loading application...');
+
+  const onSuccess = function(response) {
+    if (typeof hideLoading === 'function') hideLoading();
+
+    // normalize response shape
+    let payload = response;
+    if (response && response.success && response.data) payload = response.data;
+
+    if (!payload) {
+      alert('Failed to load application: No data returned');
+      return;
+    }
+
+    // If this is a draft (NEW + DRAFT) open the edit modal
+    const status = payload.status || payload.Status || '';
+    const completionStatus = payload.completionStatus || payload.completion_status || payload.completion || '';
+    if (String(status).toUpperCase() === 'NEW' && String(completionStatus).toUpperCase() === 'DRAFT') {
+      openEdit(appNumber);
+    } else {
+      openView(payload);
+    }
+  };
+
+  const onFailure = function(error) {
+    if (typeof hideLoading === 'function') hideLoading();
+
+    if (error?.message?.includes('Application not found')) {
+      alert('Application not found: ' + appNumber + '. Please try refreshing the list.');
+    } else if (error?.message?.includes('not authorized') || (error && error.message && /auth/i.test(error.message))) {
+      alert('You are not authorized to view this application.');
+    } else {
+      alert('Error loading application details: ' + (error?.message || error));
+    }
+  };
+
+  // Call backend (prefer google.script.run, fallback to API client)
+  callBackendAction('getApplicationDetails', onSuccess, onFailure);
+
+  // If using appsAPI with method signature getApplicationDetails(appNumber, userName) the generic callBackendAction
+  // will have invoked appsAPI.getApplicationDetails() without args, so we need to attempt the call with args for API clients:
+  // Check and, if necessary, call directly using api client
+  const apiClient = window.appsAPI || window.newAppAPI || window.viewAppAPI || window.gasAPI || window.apiService || null;
+  if (apiClient) {
+    if (typeof apiClient.getApplicationDetails === 'function') {
+      try {
+        const r = apiClient.getApplicationDetails(appNumber, userName);
+        if (r && typeof r.then === 'function') {
+          r.then(onSuccess).catch(onFailure);
+        } else {
+          onSuccess(r);
+        }
+      } catch (err) {
+        // ignore - already attempted generic call
+      }
+    } else if (typeof apiClient.request === 'function') {
+      // explicit request form
+      apiClient.request('getApplicationDetails', { appNumber, userName })
+        .then(onSuccess)
+        .catch(onFailure);
+    }
+  }
+}
+
+// Export convenience functions if needed by other modules
+window.populateTable = populateTable;
 window.handleAppNumberClick = handleAppNumberClick;
-window.showApplicationPreview = showApplicationPreview;
-window.closeApplicationPreview = closeApplicationPreview;
-window.viewApplicationDetails = function(appNumber) {
-    closeApplicationPreview();
-    handleAppNumberClick(appNumber);
-};
+window.getStatusBadgeClass = getStatusBadgeClass;
