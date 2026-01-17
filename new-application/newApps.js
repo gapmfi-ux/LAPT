@@ -1,11 +1,66 @@
-// newApplicationJS — plain JS (no <script> tags)
-// debug marker
+// newApps.js — dual API support (browser API objects or google.script.run)
+// Full file: new application modal logic, form building, save/submit actions.
+
+console.log('newApps.js loaded (dual API support)');
+
+// Generic call helper (shared pattern with viewApps)
+function callApiMethod(methodName, params = {}) {
+  return new Promise((resolve, reject) => {
+    const apiClient = window.newAppAPI || window.appsAPI || window.gasAPI || window.apiService || null;
+
+    if (apiClient && typeof apiClient[methodName] === 'function') {
+      try {
+        const args = params._args && Array.isArray(params._args) ? params._args : [];
+        const res = apiClient[methodName](...args);
+        if (res && typeof res.then === 'function') {
+          res.then(resolve).catch(reject);
+        } else {
+          resolve(res);
+        }
+        return;
+      } catch (err) {
+        reject(err);
+        return;
+      }
+    }
+
+    if (apiClient && typeof apiClient.request === 'function') {
+      try {
+        const passed = Object.assign({}, params);
+        delete passed._args;
+        apiClient.request(methodName, passed).then(resolve).catch(reject);
+      } catch (err) {
+        reject(err);
+      }
+      return;
+    }
+
+    if (window.google && google.script && google.script.run) {
+      try {
+        const args = params._args && Array.isArray(params._args) ? params._args : [];
+        google.script.run
+          .withSuccessHandler(function(response) {
+            resolve(response);
+          })
+          .withFailureHandler(function(error) {
+            reject(error);
+          })[methodName](...args);
+        return;
+      } catch (err) {
+        reject(err);
+        return;
+      }
+    }
+
+    reject(new Error('No API client available (newApps)'));
+  });
+}
+
+/* ---- State and helpers ---- */
 console.log('newApplicationJS loaded');
 
-// ---- State ----
 let additionalDocumentCount = 2;
 
-// ---- Small helpers ----
 function safeValue(id, fallback = '') {
   const el = document.getElementById(id);
   return el ? el.value : fallback;
@@ -19,7 +74,7 @@ function safeSetText(id, text) {
   if (el) el.textContent = text;
 }
 
-// ---- Utility: Reset All Fields ----
+/* ---- Reset modal ---- */
 function resetNewApplicationModal() {
   const inputs = document.querySelectorAll('#newApplicationModal input, #newApplicationModal textarea');
   inputs.forEach(input => {
@@ -27,12 +82,9 @@ function resetNewApplicationModal() {
       if (input.type === 'file') input.value = '';
       else if (input.type === 'checkbox' || input.type === 'radio') input.checked = false;
       else input.value = '';
-    } catch (e) {
-      // ignore read-only elements
-    }
+    } catch (e) {}
   });
 
-  // reset file-name displays (IDs used in the modal)
   ['bank-statement-name','pay-slip-name','undertaking-name','loan-statement-name'].forEach(id => {
     const el = document.getElementById(id);
     if (el) {
@@ -41,33 +93,36 @@ function resetNewApplicationModal() {
     }
   });
 
-  // clear dynamic tables
   const lhTable = document.getElementById('loanHistoryTable');
   if (lhTable && lhTable.querySelector('tbody')) lhTable.querySelector('tbody').innerHTML = '';
 
   const pbTable = document.getElementById('personalBudgetTable');
   if (pbTable && pbTable.querySelector('tbody')) pbTable.querySelector('tbody').innerHTML = '';
 
-  // reset counters / derived values
   additionalDocumentCount = 2;
   calculateTotals();
   calculateBudget();
 }
 
+/* ---- Show / New application modal ---- */
 function showNewApplicationModal(existingAppNumber = null) {
   if (existingAppNumber) {
-    // Load existing draft application
     loadExistingApplication(existingAppNumber);
     return;
   }
-  
-  // Ask server for new app context (app number + folder) - FOR NEW APPLICATIONS
-  google.script.run
-    .withSuccessHandler(function(ctx) {
-      window.currentAppNumber = ctx.appNumber;
-      window.currentAppFolderId = ctx.folderId;
 
-      // reflect in modal header/app-number
+  if (typeof showLoading === 'function') showLoading('Preparing application...');
+
+  callApiMethod('getNewApplicationContext', {})
+    .then(ctx => {
+      if (typeof hideLoading === 'function') hideLoading();
+
+      let appCtx = ctx;
+      if (ctx && ctx.success && ctx.data) appCtx = ctx.data;
+
+      window.currentAppNumber = appCtx?.appNumber || appCtx;
+      window.currentAppFolderId = appCtx?.folderId || '';
+
       const appNumberEl = document.getElementById('app-number');
       if (appNumberEl) appNumberEl.textContent = window.currentAppNumber || '';
 
@@ -75,7 +130,6 @@ function showNewApplicationModal(existingAppNumber = null) {
       if (modal) {
         modal.style.display = 'block';
         resetNewApplicationModal();
-        // open default or requested edit tab
         const requestedTab = sessionStorage.getItem('editTab');
         if (requestedTab) {
           openTab(requestedTab);
@@ -85,66 +139,44 @@ function showNewApplicationModal(existingAppNumber = null) {
         }
       }
     })
-    .withFailureHandler(function(error) {
-      alert('Error starting new application: ' + (error?.message || error));
-    })
-    .getNewApplicationContext();
+    .catch(err => {
+      if (typeof hideLoading === 'function') hideLoading();
+      console.warn('getNewApplicationContext failed via API:', err);
+      alert('Could not start a new application: ' + (err.message || err));
+    });
 }
 
-// In loadExistingApplication, after showing modal and calling openTab('tab1'), prefer any requested editTab
+/* ---- Load existing application for editing ---- */
 function loadExistingApplication(appNumber) {
   console.log('Loading existing application:', appNumber);
-  
-  // Show loading
-  if (typeof showLoading === 'function') showLoading();
-  else {
-    const overlay = document.createElement('div');
-    overlay.id = 'tempLoadingOverlay';
-    overlay.style.position = 'fixed';
-    overlay.style.top = 0;
-    overlay.style.left = 0;
-    overlay.style.right = 0;
-    overlay.style.bottom = 0;
-    overlay.style.background = 'rgba(0,0,0,0.4)';
-    overlay.style.display = 'flex';
-    overlay.style.alignItems = 'center';
-    overlay.style.justifyContent = 'center';
-    overlay.style.zIndex = 9999;
-    overlay.innerHTML = '<div style="background:#fff;padding:16px;border-radius:6px;">Loading application data...</div>';
-    document.body.appendChild(overlay);
-  }
-  
+
+  if (typeof showLoading === 'function') showLoading('Loading application...');
+
   const userName = localStorage.getItem('loggedInName') || '';
-  
-  google.script.run
-    .withSuccessHandler(function(response) {
-      // Hide loading
+
+  callApiMethod('getApplicationDetails', { _args: [appNumber, userName] })
+    .then(response => {
       if (typeof hideLoading === 'function') hideLoading();
-      else {
-        const o = document.getElementById('tempLoadingOverlay');
-        if (o) o.remove();
-      }
-      
-      if (response && response.success && response.data) {
-        const appData = response.data;
+
+      let payload = response;
+      if (response && response.success && response.data) payload = response.data;
+      else if (response && response.data) payload = response.data;
+
+      if (payload) {
+        const appData = payload;
         console.log('Loaded application data:', appData);
-        
-        // Set global variables
+
         window.currentAppNumber = appNumber;
         window.currentAppFolderId = appData.folderId || '';
-        
-        // Update modal header
+
         const appNumberEl = document.getElementById('app-number');
         if (appNumberEl) appNumberEl.textContent = appNumber;
-        
-        // Populate form fields
+
         populateFormWithData(appData);
-        
-        // Show modal
+
         const modal = document.getElementById('newApplicationModal');
         if (modal) {
           modal.style.display = 'block';
-          // open requested edit tab if provided, otherwise default to tab1
           const requestedTab = sessionStorage.getItem('editTab');
           if (requestedTab) {
             openTab(requestedTab);
@@ -153,34 +185,26 @@ function loadExistingApplication(appNumber) {
             openTab('tab1');
           }
         }
-        
-        // Recalculate totals
+
         calculateTotals();
         calculateBudget();
-        
       } else {
-        alert('Failed to load application: ' + (response?.message || 'Application not found'));
+        alert('Failed to load application: No data returned.');
       }
     })
-    .withFailureHandler(function(error) {
-      // Hide loading
+    .catch(error => {
       if (typeof hideLoading === 'function') hideLoading();
-      else {
-        const o = document.getElementById('tempLoadingOverlay');
-        if (o) o.remove();
-      }
-      
+      console.error('Error loading application:', error);
       alert('Error loading application: ' + (error?.message || error));
-    })
-    .getApplicationDetails(appNumber, userName); // Changed from getApplicationDetailsForEdit
+    });
 }
 
+/* ---- Modal close / tab navigation ---- */
 function closeModal() {
   const modal = document.getElementById('newApplicationModal');
   if (modal) {
     modal.style.display = 'none';
     resetNewApplicationModal();
-    // clear global app number (so UI resets)
     window.currentAppNumber = '';
     const appNumberEl = document.getElementById('app-number');
     if (appNumberEl) appNumberEl.textContent = '';
@@ -202,11 +226,10 @@ function openTab(tabName) {
   });
   if (btn) btn.classList.add('active');
 
-  // Populate review when opening review tab
   if (tabName === 'tab5') populateReview();
 }
 
-// ---- Loan History Dynamic Table ----
+/* ---- Loan History dynamic table ---- */
 function addLoanHistoryRow() {
   const tbody = document.getElementById('loanHistoryTable')?.querySelector('tbody');
   if (!tbody) return;
@@ -231,7 +254,7 @@ function deleteRow(btn) {
   if (isBudget) calculateBudget();
 }
 
-// ---- Personal Budget ----
+/* ---- Personal Budget ---- */
 function addIncomeRow() { addBudgetRow('Income'); }
 function addExpenseRow() { addBudgetRow('Expense'); }
 function addRepaymentRow() { addBudgetRow('Repayment'); }
@@ -247,7 +270,7 @@ function addBudgetRow(type) {
     <td><button type="button" class="delete-button" onclick="deleteRow(this)">Delete</button></td>
   `;
   tbody.appendChild(row);
-  calculateBudget(); // immediate recalc
+  calculateBudget();
 }
 
 function computeTotalRepayments() {
@@ -280,10 +303,8 @@ function calculateBudget() {
   const netIncomeElem = document.getElementById('netIncome');
   if (netIncomeElem) netIncomeElem.value = netIncome.toFixed(2);
 
-  // Debt Service Ratio now uses total of Repayment rows ONLY
   const repaymentUsed = totalRepayments;
 
-  // Debt Service Ratio as percentage: (repaymentUsed / netIncome) * 100
   let dsrDisplay = '0.00%';
   if (netIncome > 0 && repaymentUsed > 0) {
     dsrDisplay = ((repaymentUsed / netIncome) * 100).toFixed(2) + '%';
@@ -295,12 +316,7 @@ function calculateBudget() {
   if (dsrElem) dsrElem.value = dsrDisplay;
 }
 
-// previously attached to explicit repaymentAmount input; no-op now because repaymentAmount input removed
-function safeAttachRepaymentListener() {
-  // intentionally left empty — debt ratio is derived from Repayment rows
-}
-
-// ---- Monthly Turnover: Totals/Averages Calculation ----
+/* ---- Monthly Turnover calculations ---- */
 function calculateTotals() {
   let totalCrTO = 0, totalDrTO = 0, totalMaxBal = 0, totalMinBal = 0;
   for (let i = 1; i <= 3; i++) {
@@ -340,12 +356,9 @@ function calculateTotals() {
   setSpan('dailyAvgMinBal', totalMinBal / 90);
 }
 
-// ---- File Upload Preview ----
-// The modal uses input ids: 'bank-statement', 'pay-slip', 'undertaking', 'loan-statement'
-// and preview spans: 'bank-statement-name', 'pay-slip-name', 'undertaking-name', 'loan-statement-name'
+/* ---- File upload preview ---- */
 function updateFilePreview(input) {
   if (!input) return;
-  // map input id to preview span id
   const map = {
     'bank-statement': 'bank-statement-name',
     'pay-slip': 'pay-slip-name',
@@ -366,7 +379,6 @@ function updateFilePreview(input) {
 
 function addAdditionalDocument() {
   additionalDocumentCount++;
-  // container for additional docs may not exist; guard
   const container = document.querySelector('#tab4 .upload-grid') || document.getElementById('tab4');
   if (!container) return;
   const upItem = document.createElement('div');
@@ -379,7 +391,7 @@ function addAdditionalDocument() {
   container.appendChild(upItem);
 }
 
-// ---- Populate Review Fields ----
+/* ---- Review population (for tab5) ---- */
 function escapeHtml(s) {
   if (s === null || s === undefined) return '';
   return String(s)
@@ -391,7 +403,6 @@ function escapeHtml(s) {
 }
 
 function populateReview() {
-  // General
   const setText = (id, value) => {
     const el = document.getElementById(id);
     if (el) el.textContent = value;
@@ -405,7 +416,6 @@ function populateReview() {
 
   setText('review-characterComment', document.getElementById('characterComment')?.value || 'No character comments provided');
 
-  // Loan History
   const lhTBody = document.getElementById('review-loanHistoryTable')?.querySelector('tbody');
   if (lhTBody) {
     lhTBody.innerHTML = '';
@@ -425,83 +435,61 @@ function populateReview() {
     }
   }
 
-// In the populateReview() function, find the Budget Table section:
+  const budTBody = document.getElementById('review-personalBudgetTable')?.querySelector('tbody');
+  if (budTBody) {
+    budTBody.innerHTML = '';
 
-// Budget Table - grouped by Income / Expenditure / Repayment
-const budTBody = document.getElementById('review-personalBudgetTable')?.querySelector('tbody');
-if (budTBody) {
-  budTBody.innerHTML = '';
-  
-  // gather rows and group them
-  const rows = Array.from(document.querySelectorAll('#personalBudgetTable tbody tr'));
-  const groups = { Income: [], Expense: [], Repayment: [] };
-  
-  rows.forEach(row => {
-    const type = (row.cells[0]?.textContent || '').trim();
-    const desc = row.cells[1]?.querySelector('input')?.value || '';
-    const amt = parseFloat(row.cells[2]?.querySelector('input')?.value) || 0;
-    if (groups[type] !== undefined) groups[type].push({ type, desc, amt });
-    else groups.Expense.push({ type, desc, amt }); // fallback to Expense
-  });
-  
-  // helper to append group
-  function appendGroup(title, items) {
-    // header row for group
-    const header = document.createElement('tr');
-    header.innerHTML = `<td colspan="2" style="font-weight:bold; padding-top:8px;">${escapeHtml(title)}</td>`;
-    budTBody.appendChild(header);
-    
-    if (!items.length) {
-      const emptyRow = document.createElement('tr');
-      emptyRow.innerHTML = `<td colspan="2" class="no-data">No ${escapeHtml(title.toLowerCase())} items</td>`;
-      budTBody.appendChild(emptyRow);
-      return;
-    }
-    
-    items.forEach(it => {
-      const r = document.createElement('tr');
-      // REMOVED TYPE COLUMN - now only Description and Amount
-      r.innerHTML = `<td>${escapeHtml(it.desc)}</td><td>${it.amt.toFixed(2)}</td>`;
-      budTBody.appendChild(r);
+    const rows = Array.from(document.querySelectorAll('#personalBudgetTable tbody tr'));
+    const groups = { Income: [], Expense: [], Repayment: [] };
+
+    rows.forEach(row => {
+      const type = (row.cells[0]?.textContent || '').trim();
+      const desc = row.cells[1]?.querySelector('input')?.value || '';
+      const amt = parseFloat(row.cells[2]?.querySelector('input')?.value) || 0;
+      if (groups[type] !== undefined) groups[type].push({ type, desc, amt });
+      else groups.Expense.push({ type, desc, amt });
     });
+
+    function appendGroup(title, items) {
+      const header = document.createElement('tr');
+      header.innerHTML = `<td colspan="2" style="font-weight:bold; padding-top:8px;">${escapeHtml(title)}</td>`;
+      budTBody.appendChild(header);
+
+      if (!items.length) {
+        const emptyRow = document.createElement('tr');
+        emptyRow.innerHTML = `<td colspan="2" class="no-data">No ${escapeHtml(title.toLowerCase())} items</td>`;
+        budTBody.appendChild(emptyRow);
+        return;
+      }
+
+      items.forEach(it => {
+        const r = document.createElement('tr');
+        r.innerHTML = `<td>${escapeHtml(it.desc)}</td><td>${it.amt.toFixed(2)}</td>`;
+        budTBody.appendChild(r);
+      });
+    }
+
+    appendGroup('INCOME', groups.Income);
+    appendGroup('EXPENDITURE', groups.Expense);
+    appendGroup('REPAYMENT', groups.Repayment);
+
+    const netIncomeVal = safeValue('netIncome') || '0.00';
+    const netRow = document.createElement('tr');
+    netRow.innerHTML = `<td style="text-align:right; font-weight:bold;">NET INCOME</td><td style="font-weight:bold;">${escapeHtml(netIncomeVal)}</td>`;
+    budTBody.appendChild(netRow);
+
+    const dsrVal = safeValue('debtServiceRatio') || '0.00%';
+    const dsrRow = document.createElement('tr');
+    dsrRow.innerHTML = `<td style="text-align:right; font-weight:bold;">Debt Service Ratio:</td><td style="font-weight:bold;">${escapeHtml(dsrVal)}</td>`;
+    budTBody.appendChild(dsrRow);
   }
-  
-  appendGroup('INCOME', groups.Income);
-  appendGroup('EXPENDITURE', groups.Expense);
-  appendGroup('REPAYMENT', groups.Repayment);
-  
-  // NET INCOME row - now spans 1 column instead of 2
-  const netIncomeVal = safeValue('netIncome') || '0.00';
-  const netRow = document.createElement('tr');
-  netRow.innerHTML = `<td style="text-align:right; font-weight:bold;">NET INCOME</td><td style="font-weight:bold;">${escapeHtml(netIncomeVal)}</td>`;
-  budTBody.appendChild(netRow);
-  
-  // Debt Service Ratio row
-  const dsrVal = safeValue('debtServiceRatio') || '0.00%';
-  const dsrRow = document.createElement('tr');
-  dsrRow.innerHTML = `<td style="text-align:right; font-weight:bold;">Debt Service Ratio:</td><td style="font-weight:bold;">${escapeHtml(dsrVal)}</td>`;
-  budTBody.appendChild(dsrRow);
-}
 
-// Escape HTML function (add this if not already present)
-function escapeHtml(s) {
-  if (s === null || s === undefined) return '';
-  return String(s)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
-
-  // show total repayments value in the review repayment field (element kept for display)
   const totalRepaymentsVal = computeTotalRepayments();
   setText('review-repaymentAmount', totalRepaymentsVal ? Number(totalRepaymentsVal).toFixed(2) : '0.00');
 
   setText('review-netIncome', safeValue('netIncome') || '0.00');
   setText('review-debtServiceRatio', safeValue('debtServiceRatio') || '0.00');
 
-  // Monthly Turnover
   const mtTBody = document.getElementById('review-monthlyTurnoverTable')?.querySelector('tbody');
   if (mtTBody) {
     mtTBody.innerHTML = '';
@@ -513,7 +501,6 @@ function escapeHtml(s) {
       const minB = safeValue(`minBal${i}`) || '0.00';
       mtTBody.innerHTML += `<tr><td>${escapeHtml(month)}</td><td>${escapeHtml(cr)}</td><td>${escapeHtml(dr)}</td><td>${escapeHtml(maxB)}</td><td>${escapeHtml(minB)}</td></tr>`;
     }
-    // append summary rows
     const appendSummaryRow = (label, ids) => {
       const v0 = parseFloat(safeText(ids[0], '0')) || 0;
       const v1 = parseFloat(safeText(ids[1], '0')) || 0;
@@ -527,17 +514,14 @@ function escapeHtml(s) {
     if (document.getElementById('dailyAvgCrTO')) appendSummaryRow('<strong>Daily Average</strong>', ['dailyAvgCrTO','dailyAvgDrTO','dailyAvgMaxBal','dailyAvgMinBal']);
   }
 
-  // Risk Comments/Recommendations
   setText('review-marginComment', document.getElementById('marginComment')?.value || 'No margin requirements specified');
   setText('review-repaymentComment', document.getElementById('repaymentComment')?.value || 'Standard repayment terms apply');
   setText('review-securityComment', document.getElementById('securityComment')?.value || 'Primary collateral required');
   setText('review-financialsComment', document.getElementById('financialsComment')?.value || 'Financial statements reviewed and acceptable');
   setText('review-risksComment', document.getElementById('risksComment')?.value || 'Moderate market risk identified');
   setText('review-riskMitigationComment', document.getElementById('riskMitigationComment')?.value || 'Regular monitoring implemented');
-setText('review-creditOfficerComment', document.getElementById('creditOfficerComment')?.value || 'No recommendation provided');
+  setText('review-creditOfficerComment', document.getElementById('creditOfficerComment')?.value || 'No recommendation provided');
 
-
-  // Uploaded Documents list
   const uploadsList = document.getElementById('review-uploads-list');
   if (uploadsList) {
     uploadsList.innerHTML = '';
@@ -561,7 +545,7 @@ setText('review-creditOfficerComment', document.getElementById('creditOfficerCom
   }
 }
 
-// ---- Build Form Data (structured) ----
+/* ---- Build structured form data ---- */
 function buildModalFormData() {
   const formData = {
     name: safeValue('name'),
@@ -573,7 +557,6 @@ function buildModalFormData() {
     loanHistory: [],
     personalBudget: [],
     netIncome: safeValue('netIncome') || '0.00',
-    // repaymentAmount removed — we provide totalRepayments instead
     totalRepayments: computeTotalRepayments(),
     debtServiceRatio: safeValue('debtServiceRatio') || '0.00%',
     monthlyTurnover: {
@@ -615,8 +598,7 @@ function buildModalFormData() {
     financialsComment: document.getElementById('financialsComment')?.value || '',
     risksComment: document.getElementById('risksComment')?.value || '',
     riskMitigationComment: document.getElementById('riskMitigationComment')?.value || '',
-creditOfficerComment: document.getElementById('creditOfficerComment')?.value || '',
-
+    creditOfficerComment: document.getElementById('creditOfficerComment')?.value || '',
     uploadedFiles: {
       bankStatement: safeText('bank-statement-name'),
       paySlip: safeText('pay-slip-name'),
@@ -625,7 +607,6 @@ creditOfficerComment: document.getElementById('creditOfficerComment')?.value || 
     }
   };
 
-  // collect loan history
   const lhRows = document.querySelectorAll('#loanHistoryTable tbody tr');
   lhRows.forEach(row => {
     const inputs = row.querySelectorAll('input');
@@ -638,7 +619,6 @@ creditOfficerComment: document.getElementById('creditOfficerComment')?.value || 
     });
   });
 
-  // collect personal budget
   const pbRows = document.querySelectorAll('#personalBudgetTable tbody tr');
   pbRows.forEach(row => {
     const type = row.cells[0]?.textContent || '';
@@ -650,21 +630,20 @@ creditOfficerComment: document.getElementById('creditOfficerComment')?.value || 
   return formData;
 }
 
-// ---- Save Application (draft or full) ----
+/* ---- Save draft ---- */
 function saveDraftFromModal() {
   const loggedInUser = localStorage.getItem('loggedInName') || '';
   if (!loggedInUser) {
     alert('Please login first!');
     return;
   }
-  
+
   const appNumber = window.currentAppNumber || document.getElementById('app-number')?.textContent || '';
   if (!appNumber) {
     alert('Application number not found.');
     return;
   }
 
-  // Validate minimum required fields for draft
   const name = document.getElementById('name')?.value;
   if (!name) {
     alert('Please at least enter the applicant name for the draft.');
@@ -672,59 +651,32 @@ function saveDraftFromModal() {
   }
 
   const formData = buildModalFormData();
-  
-  // DEBUG
-  console.log("Saving draft - formData:", formData);
-  console.log("Saving draft - creditOfficerComment:", formData.creditOfficerComment);
-  
-  // Show loading
-  if (typeof showLoading === 'function') showLoading();
-  else {
-    const overlay = document.createElement('div');
-    overlay.id = 'tempSavingOverlay';
-    overlay.style.position = 'fixed';
-    overlay.style.top = 0;
-    overlay.style.left = 0;
-    overlay.style.right = 0;
-    overlay.style.bottom = 0;
-    overlay.style.background = 'rgba(0,0,0,0.4)';
-    overlay.style.display = 'flex';
-    overlay.style.alignItems = 'center';
-    overlay.style.justifyContent = 'center';
-    overlay.style.zIndex = 9999;
-    overlay.innerHTML = '<div style="background:#fff;padding:16px;border-radius:6px;">Saving draft...</div>';
-    document.body.appendChild(overlay);
-  }
-  
-  // Call saveProcessApplicationForm with isDraft = true
-  google.script.run
-    .withSuccessHandler(function(res) {
+
+  if (typeof showLoading === 'function') showLoading('Saving draft...');
+
+  callApiMethod('saveProcessApplicationForm', { _args: [appNumber, formData, loggedInUser, true] })
+    .then(res => {
       if (typeof hideLoading === 'function') hideLoading();
-      else {
-        const o = document.getElementById('tempSavingOverlay');
-        if (o) o.remove();
-      }
-      
-      if (res && res.success) {
-        alert(res.message || 'Draft saved!');
+
+      let resp = res;
+      if (res && res.success && res.data) resp = res;
+      if (resp && resp.success) {
+        alert(resp.message || 'Draft saved!');
         if (typeof closeModal === 'function') closeModal();
         if (typeof refreshApplications === 'function') refreshApplications();
         if (typeof updateBadgeCounts === 'function') updateBadgeCounts();
       } else {
-        alert('Failed to save draft: ' + (res?.message || 'unknown error'));
+        alert('Failed to save draft: ' + (resp && resp.message ? resp.message : 'unknown error'));
       }
     })
-    .withFailureHandler(function(err) {
+    .catch(err => {
       if (typeof hideLoading === 'function') hideLoading();
-      else {
-        const o = document.getElementById('tempSavingOverlay');
-        if (o) o.remove();
-      }
+      console.error('Error saving draft:', err);
       alert('Error saving draft: ' + (err?.message || err));
-    })
-    .saveProcessApplicationForm(appNumber, formData, loggedInUser, true); // true = isDraft
+    });
 }
 
+/* ---- Save / Submit application ---- */
 function saveNewApplication() {
   const loggedInUser = localStorage.getItem('loggedInName');
   if (!loggedInUser) {
@@ -737,7 +689,6 @@ function saveNewApplication() {
     return;
   }
 
-  // Validate required fields
   const name = document.getElementById('name')?.value;
   const amount = document.getElementById('amount')?.value;
   const purpose = document.getElementById('purpose')?.value;
@@ -750,166 +701,41 @@ function saveNewApplication() {
   }
 
   const formData = buildModalFormData();
-  
-  // DEBUG
-  console.log("Submitting application - formData:", formData);
-  console.log("Submitting application - creditOfficerComment:", formData.creditOfficerComment);
-  
   formData.appNumber = appNumber;
 
-  // Show loading UI
-  if (typeof showLoading === 'function') showLoading();
-  else {
-    const overlay = document.createElement('div');
-    overlay.id = 'tempSavingOverlay';
-    overlay.style.position = 'fixed';
-    overlay.style.top = 0;
-    overlay.style.left = 0;
-    overlay.style.right = 0;
-    overlay.style.bottom = 0;
-    overlay.style.background = 'rgba(0,0,0,0.4)';
-    overlay.style.display = 'flex';
-    overlay.style.alignItems = 'center';
-    overlay.style.justifyContent = 'center';
-    overlay.style.zIndex = 9999;
-    overlay.innerHTML = '<div style="background:#fff;padding:16px;border-radius:6px;">Submitting application...</div>';
-    document.body.appendChild(overlay);
-  }
+  if (typeof showLoading === 'function') showLoading('Submitting application...');
 
-  // Call saveProcessApplicationForm with isDraft = false (full submission)
-  google.script.run
-    .withSuccessHandler(function(response) {
+  callApiMethod('saveProcessApplicationForm', { _args: [appNumber, formData, loggedInUser, false] })
+    .then(response => {
       if (typeof hideLoading === 'function') hideLoading();
-      else {
-        const o = document.getElementById('tempSavingOverlay');
-        if (o) o.remove();
-      }
 
-      if (response && response.success) {
-        alert(response.message || 'Application submitted successfully!');
+      let resp = response;
+      if (response && response.success && response.data) resp = response;
+      if (resp && resp.success) {
+        alert(resp.message || 'Application submitted successfully!');
         if (typeof closeModal === 'function') closeModal();
         if (typeof refreshApplications === 'function') refreshApplications();
         if (typeof updateBadgeCounts === 'function') updateBadgeCounts();
       } else {
-        alert('Error saving application: ' + (response?.message || 'unknown error'));
+        alert('Error saving application: ' + (resp?.message || 'unknown error'));
       }
     })
-    .withFailureHandler(function(error) {
+    .catch(err => {
       if (typeof hideLoading === 'function') hideLoading();
-      else {
-        const o = document.getElementById('tempSavingOverlay');
-        if (o) o.remove();
-      }
-      alert('Error saving application: ' + (error?.message || error));
-    })
-    .saveProcessApplicationForm(appNumber, formData, loggedInUser, false); // false = not a draft
+      console.error('Error submitting application:', err);
+      alert('Error submitting application: ' + (err?.message || err));
+    });
 }
 
-// ---- Submit (final) ----
 function submitNewApplication() {
-  const loggedInUser = localStorage.getItem('loggedInName');
-  if (!loggedInUser) {
-    alert('Please login first!');
-    return;
-  }
-  
-  const appNumber = window.currentAppNumber || document.getElementById('app-number')?.textContent || '';
-  if (!appNumber) {
-    alert('Application number not found. Please start a new application from the main dashboard.');
-    return;
-  }
-
-  // Validate ALL required fields for submission
-  const name = document.getElementById('name')?.value;
-  const amount = document.getElementById('amount')?.value;
-  const purpose = document.getElementById('purpose')?.value;
-  const duration = document.getElementById('duration')?.value;
-  const interestRate = document.getElementById('interestRate')?.value;
-
-  if (!name || !amount || !purpose || !duration || !interestRate) {
-    alert('Please fill in all required fields: Name, Amount, Purpose, Duration, and Interest Rate');
-    return;
-  }
-
-  // Also validate that important sections are filled
-  const characterComment = document.getElementById('characterComment')?.value;
-  const creditOfficerComment = document.getElementById('creditOfficerComment')?.value;
-  
-  if (!characterComment || characterComment.trim() === '') {
-    if (!confirm('Character comment is empty. Submit anyway?')) return;
-  }
-  
-  if (!creditOfficerComment || creditOfficerComment.trim() === '') {
-    if (!confirm('Credit Officer recommendation is empty. Submit anyway?')) return;
-  }
-
-  const formData = buildModalFormData();
-  
-  // DEBUG
-  console.log("SUBMITTING application - formData:", formData);
-  console.log("SUBMITTING - creditOfficerComment:", formData.creditOfficerComment);
-  
-  // Show loading UI
-  if (typeof showLoading === 'function') showLoading();
-  else {
-    const overlay = document.createElement('div');
-    overlay.id = 'tempSavingOverlay';
-    overlay.style.position = 'fixed';
-    overlay.style.top = 0;
-    overlay.style.left = 0;
-    overlay.style.right = 0;
-    overlay.style.bottom = 0;
-    overlay.style.background = 'rgba(0,0,0,0.4)';
-    overlay.style.display = 'flex';
-    overlay.style.alignItems = 'center';
-    overlay.style.justifyContent = 'center';
-    overlay.style.zIndex = 9999;
-    overlay.innerHTML = '<div style="background:#fff;padding:16px;border-radius:6px;">Submitting application...</div>';
-    document.body.appendChild(overlay);
-  }
-
-  // Call saveProcessApplicationForm with isDraft = false (full submission)
-  google.script.run
-    .withSuccessHandler(function(response) {
-      if (typeof hideLoading === 'function') hideLoading();
-      else {
-        const o = document.getElementById('tempSavingOverlay');
-        if (o) o.remove();
-      }
-
-      if (response && response.success) {
-        // Show success message
-        if (typeof showSuccessModal === 'function') {
-          showSuccessModal(response.message || 'Application submitted successfully!');
-        } else {
-          alert(response.message || 'Application submitted successfully!');
-        }
-        
-        if (typeof closeModal === 'function') closeModal();
-        if (typeof refreshApplications === 'function') refreshApplications();
-        if (typeof updateBadgeCounts === 'function') updateBadgeCounts();
-      } else {
-        alert('Error submitting application: ' + (response?.message || 'unknown error'));
-      }
-    })
-    .withFailureHandler(function(error) {
-      if (typeof hideLoading === 'function') hideLoading();
-      else {
-        const o = document.getElementById('tempSavingOverlay');
-        if (o) o.remove();
-      }
-      alert('Error submitting application: ' + (error?.message || error));
-    })
-    .saveProcessApplicationForm(appNumber, formData, loggedInUser, false); // false = not a draft (full submission)
+  saveNewApplication();
 }
 
-// ---- Initial Setup ----
+/* ---- Initialization & UI wiring ---- */
 function initNewApplicationScripts() {
   calculateTotals();
   calculateBudget();
-  safeAttachRepaymentListener(); // no-op now; kept for compatibility
 
-  // attach file input preview handlers for known inputs
   ['bank-statement','pay-slip','undertaking','loan-statement'].forEach(id => {
     const input = document.getElementById(id);
     if (input) {
@@ -918,7 +744,6 @@ function initNewApplicationScripts() {
     }
   });
 
-  // click outside modal to close (guarded)
   const modal = document.getElementById('newApplicationModal');
   if (modal) {
     window.addEventListener('click', function(event) {
@@ -927,38 +752,28 @@ function initNewApplicationScripts() {
   }
 }
 
-// run init when DOM ready
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initNewApplicationScripts);
 } else {
   initNewApplicationScripts();
 }
 
-// ---- Populate Form with Existing Data ----
-// ---- Populate Form with Existing Data ----
+/* ---- Populate form with existing data ---- */
 function populateFormWithData(appData) {
   console.log('Populating form with data:', appData);
-  
-  // Basic Information
+
   setInputValue('name', appData.name || '');
   setInputValue('amount', appData.amount || '');
   setInputValue('purpose', appData.purpose || '');
   setInputValue('duration', appData.duration || '');
   setInputValue('interestRate', appData.interestRate || '');
-  
-  // Character Comment
+
   setTextareaValue('characterComment', appData.characterComment || '');
-  
-  // Loan History
+
   populateLoanHistory(appData.loanHistory || []);
-  
-  // Personal Budget
   populatePersonalBudget(appData.personalBudget || []);
-  
-  // Monthly Turnover
   populateMonthlyTurnover(appData.monthlyTurnover || {});
-  
-  // Risk & Security Comments
+
   setTextareaValue('marginComment', appData.marginComment || '');
   setTextareaValue('repaymentComment', appData.repaymentComment || '');
   setTextareaValue('securityComment', appData.securityComment || '');
@@ -966,31 +781,26 @@ function populateFormWithData(appData) {
   setTextareaValue('risksComment', appData.risksComment || '');
   setTextareaValue('riskMitigationComment', appData.riskMitigationComment || '');
   setTextareaValue('creditOfficerComment', appData.creditOfficerComment || '');
-  
-  // Set calculated fields
+
   setInputValue('netIncome', appData.netIncome || '0.00');
   setInputValue('debtServiceRatio', appData.debtServiceRatio || '0.00%');
-  
-  // Update file previews if files exist
+
   updateFilePreviews(appData.documents || []);
 }
 
-// ---- Helper functions for loading existing applications ----
+/* ---- Helpers for populateFormWithData ---- */
 function setInputValue(id, value) {
   const el = document.getElementById(id);
   if (el) el.value = value;
 }
-
 function setTextareaValue(id, value) {
   const el = document.getElementById(id);
   if (el) {
     el.value = value;
-    // Trigger auto-resize
     el.style.height = 'auto';
     el.style.height = (el.scrollHeight) + 'px';
   }
 }
-
 function formatDateForInput(dateString) {
   if (!dateString) return '';
   try {
@@ -1001,16 +811,11 @@ function formatDateForInput(dateString) {
     return '';
   }
 }
-
 function populateLoanHistory(loanHistory) {
   const tbody = document.getElementById('loanHistoryTable')?.querySelector('tbody');
   if (!tbody) return;
-  
-  // Clear existing rows
   tbody.innerHTML = '';
-  
   if (loanHistory.length === 0) return;
-  
   loanHistory.forEach(item => {
     const row = document.createElement('tr');
     row.innerHTML = `
@@ -1024,16 +829,11 @@ function populateLoanHistory(loanHistory) {
     tbody.appendChild(row);
   });
 }
-
 function populatePersonalBudget(personalBudget) {
   const tbody = document.getElementById('personalBudgetTable')?.querySelector('tbody');
   if (!tbody) return;
-  
-  // Clear existing rows
   tbody.innerHTML = '';
-  
   if (personalBudget.length === 0) return;
-  
   personalBudget.forEach(item => {
     const row = document.createElement('tr');
     row.innerHTML = `
@@ -1045,31 +845,24 @@ function populatePersonalBudget(personalBudget) {
     tbody.appendChild(row);
   });
 }
-
 function populateMonthlyTurnover(turnover) {
   if (!turnover) return;
-  
-  // Month names
   if (turnover.month1 !== undefined) setInputValue('month1', turnover.month1 || 'Nov-24');
   if (turnover.month2 !== undefined) setInputValue('month2', turnover.month2 || 'Dec-24');
   if (turnover.month3 !== undefined) setInputValue('month3', turnover.month3 || 'Jan-25');
-  
-  // CR T/O
+
   if (turnover.crTO1 !== undefined) setInputValue('crTO1', turnover.crTO1 || 0);
   if (turnover.crTO2 !== undefined) setInputValue('crTO2', turnover.crTO2 || 0);
   if (turnover.crTO3 !== undefined) setInputValue('crTO3', turnover.crTO3 || 0);
-  
-  // DR T/O
+
   if (turnover.drTO1 !== undefined) setInputValue('drTO1', turnover.drTO1 || 0);
   if (turnover.drTO2 !== undefined) setInputValue('drTO2', turnover.drTO2 || 0);
   if (turnover.drTO3 !== undefined) setInputValue('drTO3', turnover.drTO3 || 0);
-  
-  // Max Bal
+
   if (turnover.maxBal1 !== undefined) setInputValue('maxBal1', turnover.maxBal1 || 0);
   if (turnover.maxBal2 !== undefined) setInputValue('maxBal2', turnover.maxBal2 || 0);
   if (turnover.maxBal3 !== undefined) setInputValue('maxBal3', turnover.maxBal3 || 0);
-  
-  // Min Bal
+
   if (turnover.minBal1 !== undefined) setInputValue('minBal1', turnover.minBal1 || 0);
   if (turnover.minBal2 !== undefined) setInputValue('minBal2', turnover.minBal2 || 0);
   if (turnover.minBal3 !== undefined) setInputValue('minBal3', turnover.minBal3 || 0);
@@ -1077,7 +870,6 @@ function populateMonthlyTurnover(turnover) {
 
 function updateFilePreviews(documents) {
   if (!documents || documents.length === 0) return;
-  
   documents.forEach(doc => {
     if (doc.type === 'bankStatement') {
       safeSetText('bank-statement-name', doc.name || 'File uploaded');
@@ -1098,3 +890,10 @@ function updateFilePreviews(documents) {
     }
   });
 }
+
+/* ---- Expose core functions globally ---- */
+window.showNewApplicationModal = showNewApplicationModal;
+window.loadExistingApplication = loadExistingApplication;
+window.saveDraftFromModal = saveDraftFromModal;
+window.saveNewApplication = saveNewApplication;
+window.submitNewApplication = submitNewApplication;
