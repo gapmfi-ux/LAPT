@@ -513,6 +513,52 @@ function showApplicationNotification(userName, userRole, count) {
     }
 }
 
+// Main.js - Add this function
+async function initializeApplicationTables() {
+  console.log('Main.js: Initializing application tables...');
+  
+  // Wait for API to be ready
+  if (window.apiReadyPromise) {
+    try {
+      const apiReady = await window.apiReadyPromise;
+      console.log('Main.js: API ready status:', apiReady);
+    } catch (error) {
+      console.warn('Main.js: API initialization had issues:', error);
+    }
+  }
+  
+  // Wait a bit for DOM to be fully ready
+  setTimeout(() => {
+    console.log('Main.js: Checking for AppsTables functions...');
+    
+    // Check if AppsTables functions are available
+    if (typeof window.populateTable === 'function') {
+      console.log('Main.js: populateTable function found, initializing tables...');
+      
+      // Initialize tables with the correct IDs
+      const tables = [
+        { id: 'new-list', action: 'getNewApplications' },
+        { id: 'pending-list', action: 'getPendingApplications' },
+        { id: 'pending-approvals-list', action: 'getPendingApprovalApplications' },
+        { id: 'approved-list', action: 'getApprovedApplications' }
+      ];
+      
+      tables.forEach(table => {
+        const element = document.getElementById(table.id);
+        if (element) {
+          console.log(`Main.js: Populating ${table.id} with ${table.action}`);
+          window.populateTable(table.id, table.action, { showLoading: true });
+        } else {
+          console.warn(`Main.js: Table element not found: ${table.id}`);
+        }
+      });
+    } else {
+      console.error('Main.js: populateTable function not found!');
+      console.log('Main.js: Available window functions:', Object.keys(window).filter(key => typeof window[key] === 'function'));
+    }
+  }, 1000);
+}
+
 // ===== MAKE FUNCTIONS GLOBALLY AVAILABLE =====
 window.showSection = showSection;
 window.refreshApplications = refreshApplications;
