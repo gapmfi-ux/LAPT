@@ -292,34 +292,32 @@ async function loadSectionContent(sectionId) {
     }
 }
 
-// Add this function to Main.js
 async function initializeApplicationsSection(sectionId) {
     console.log(`Main.js: Initializing applications section: ${sectionId}`);
     
-    // Wait a moment for AppsTables.js to fully initialize
-    let retries = 0;
-    const maxRetries = 10;
-    
-    function waitForAppsTables() {
-        return new Promise((resolve) => {
-            function check() {
-                if (typeof window.populateTable === 'function') {
-                    console.log('AppsTables.js functions are available');
-                    resolve();
-                } else if (retries < maxRetries) {
-                    retries++;
-                    console.log(`Waiting for AppsTables... (${retries}/${maxRetries})`);
-                    setTimeout(check, 200);
-                } else {
-                    console.warn('AppsTables.js not fully loaded after waiting');
-                    resolve();
-                }
-            }
-            check();
-        });
+    // Wait for API to be ready
+    if (window.apiReadyPromise) {
+        try {
+            await window.apiReadyPromise;
+            console.log('API is ready');
+        } catch (error) {
+            console.warn('API initialization had issues:', error);
+        }
     }
     
-    await waitForAppsTables();
+    // Wait for AppsTables.js functions
+    let retries = 0;
+    const maxRetries = 15;
+    
+    while (retries < maxRetries) {
+        if (typeof window.populateTable === 'function') {
+            console.log('AppsTables.js functions are available');
+            break;
+        }
+        await new Promise(resolve => setTimeout(resolve, 200));
+        retries++;
+        console.log(`Waiting for AppsTables functions... (${retries}/${maxRetries})`);
+    }
     
     // Map sectionId to table ID and action
     const sectionMap = {
@@ -339,92 +337,21 @@ async function initializeApplicationsSection(sectionId) {
     const tableElement = document.getElementById(section.tableId);
     if (!tableElement) {
         console.error(`Table element not found: ${section.tableId}`);
-        
-        // Try to find it in the document
-        setTimeout(() => {
-            const foundElement = document.getElementById(section.tableId);
-            if (foundElement && typeof window.populateTable === 'function') {
-                console.log(`Found table ${section.tableId} after delay, populating...`);
-                window.populateTable(section.tableId, section.action, { showLoading: true });
-            }
-        }, 500);
         return;
     }
     
-    // Check if table is already populated
-    const hasRows = tableElement.children.length > 0;
-    const hasContent = tableElement.innerHTML.trim().length > 0;
-    
-    if (!hasRows || tableElement.innerHTML.includes('Loading') || !hasContent) {
+    // Use populateTable if available
+    if (typeof window.populateTable === 'function') {
         console.log(`Populating table ${section.tableId} with ${section.action}`);
-        
-        // Use populateTable if available
-        if (typeof window.populateTable === 'function') {
-            window.populateTable(section.tableId, section.action, { showLoading: true });
-        } 
-        // Fallback: use API directly
-        else if (window.appsAPI || window.apiService) {
-            console.log('Using API directly to load data');
-            await loadTableDirectly(section.tableId, section.action);
-        } else {
-            console.error('No API client available');
-            tableElement.innerHTML = '<tr><td colspan="5" class="error">Failed to load data</td></tr>';
-        }
+        window.populateTable(section.tableId, section.action, { showLoading: true });
     } else {
-        console.log(`Table ${section.tableId} already has data`);
+        console.error('populateTable function not available');
+        // Try direct API call as fallback
+        await loadTableDirectly(section.tableId, section.action);
     }
     
     // Setup click handlers for app links
     setupAppLinkHandlers();
-}
-
-// Fallback function to load table data directly
-async function loadTableDirectly(tableId, action) {
-    try {
-        const apiClient = window.appsAPI || window.apiService || window.gasAPI;
-        if (!apiClient) {
-            throw new Error('No API client available');
-        }
-        
-        let result;
-        if (typeof apiClient[action] === 'function') {
-            result = await apiClient[action]();
-        } else if (typeof apiClient.request === 'function') {
-            result = await apiClient.request(action);
-        } else {
-            throw new Error(`Cannot call ${action}`);
-        }
-        
-        const table = document.getElementById(tableId);
-        if (!table) return;
-        
-        // Simple table population (you can expand this)
-        if (result && result.success && Array.isArray(result.data)) {
-            const rows = result.data.map(app => `
-                <tr>
-                    <td class="app-number">
-                        <a href="javascript:void(0)" class="app-number-link" onclick="handleAppNumberClick('${app.appNumber || app.id}')">
-                            ${app.appNumber || app.id}
-                        </a>
-                    </td>
-                    <td class="applicant-name">${app.applicantName || app.name || 'N/A'}</td>
-                    <td class="amount">${formatCurrency(app.amount || 0)}</td>
-                    <td class="date">${app.date ? new Date(app.date).toLocaleDateString() : 'N/A'}</td>
-                    <td class="action-by">${app.actionBy || app.action_by || 'N/A'}</td>
-                </tr>
-            `).join('');
-            
-            table.innerHTML = rows || '<tr><td colspan="5" class="no-data">No applications found</td></tr>';
-        } else {
-            table.innerHTML = '<tr><td colspan="5" class="error">Failed to load data</td></tr>';
-        }
-    } catch (error) {
-        console.error(`Error loading ${action}:`, error);
-        const table = document.getElementById(tableId);
-        if (table) {
-            table.innerHTML = `<tr><td colspan="5" class="error">Error: ${error.message}</td></tr>`;
-        }
-    }
 }
 
 // Helper function to format currency
