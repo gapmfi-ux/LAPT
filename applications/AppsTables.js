@@ -9,8 +9,25 @@ let applicationsData = {
 };
 
 /* ---- Wait for API globals to become available (avoid race conditions) ---- */
-async function ensureAPIAvailable(timeoutMs = 3000) {
+async function ensureAPIAvailable(timeoutMs = 5000) {
     const start = Date.now();
+
+    // If the app publishes apiReadyPromise, await it first (preferred)
+    if (window.apiReadyPromise && typeof window.apiReadyPromise.then === 'function') {
+        try {
+            // Wait for the apiReadyPromise, but don't exceed timeoutMs
+            await Promise.race([
+                window.apiReadyPromise,
+                new Promise((_, reject) => setTimeout(() => reject(new Error('apiReadyPromise timeout')), timeoutMs))
+            ]);
+            return !!(window.appsAPI || window.apiService || window.gasAPI || window.newAppAPI || window.viewAppAPI);
+        } catch (err) {
+            console.warn('AppsTables: apiReadyPromise did not resolve within timeout:', err);
+            // fall through to polling below (remaining time)
+        }
+    }
+
+    // Poll for any API globals if promise either not present or timed out
     const check = () => {
         return !!(window.appsAPI || window.apiService || window.gasAPI || window.newAppAPI || window.viewAppAPI);
     };
@@ -29,7 +46,6 @@ async function ensureAPIAvailable(timeoutMs = 3000) {
         }, 100);
     });
 }
-
 function initializeApplicationsSection(sectionId = 'new') {
     currentSection = sectionId;
 
