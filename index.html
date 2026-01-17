@@ -112,10 +112,20 @@
     </div>
   </div>
 
+<!-- index.html - Update the script loading section -->
+<!-- Load APIs FIRST -->
 <script src="api-loader.js"></script>
+
+<!-- Load AppsTables.js BEFORE Main.js so tables can be initialized -->
+<script src="applications/AppsTables.js"></script>
+
+<!-- New Application Modal Script -->
 <script src="new-application/newApps.js"></script>
+
+<!-- Main app script -->
 <script src="Main.js"></script>
-<script src="button-handlers.js"></script>
-<script src="applications/AppsTables.js"></script>  
+
+<!-- Button event handlers -->
+<script src="button-handlers.js"></script>  
 </body>
 </html>
