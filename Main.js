@@ -84,6 +84,20 @@ document.addEventListener('DOMContentLoaded', function() {
   console.log('Main.js initialized successfully');
 });
 
+function updateCurrentDate() {
+  const dateDisplay = document.getElementById('current-date');
+  if (dateDisplay) {
+    const now = new Date();
+    const options = { 
+      weekday: 'long', 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    };
+    dateDisplay.textContent = now.toLocaleDateString('en-US', options);
+  }
+}
+
 // Emergency timeout
 setTimeout(function() {
     const loading = document.getElementById('loading');
