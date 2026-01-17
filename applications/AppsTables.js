@@ -20,69 +20,103 @@ function getStatusBadgeClass(status) {
   return statusMap[status] || 'status-pending';
 }
 
-// FIXED: Improved callBackendAction to properly handle both google.script.run and API client calls
 function callBackendAction(actionName, params, onSuccess, onFailure) {
-  // Prefer google.script.run if available (Apps Script environment)
-  if (window.google && google.script && google.script.run) {
-    try {
-      let scriptRunner;
-      
-      // Check if the method exists in google.script.run
-      if (typeof google.script.run[actionName] !== 'function') {
-        console.warn(`Method ${actionName} not found in google.script.run`);
-        throw new Error(`Method ${actionName} not available`);
+  console.log(`callBackendAction: ${actionName}`, params);
+  
+  // Wait for API to be available
+  function tryAction() {
+    // Check API clients in order of preference
+    let apiClient = null;
+    
+    if (window.appsAPI && typeof window.appsAPI[actionName] === 'function') {
+      apiClient = window.appsAPI;
+      console.log(`Using appsAPI.${actionName}`);
+    } else if (window.newAppAPI && typeof window.newAppAPI[actionName] === 'function') {
+      apiClient = window.newAppAPI;
+      console.log(`Using newAppAPI.${actionName}`);
+    } else if (window.viewAppAPI && typeof window.viewAppAPI[actionName] === 'function') {
+      apiClient = window.viewAppAPI;
+      console.log(`Using viewAppAPI.${actionName}`);
+    } else if (window.apiService && typeof window.apiService.request === 'function') {
+      apiClient = window.apiService;
+      console.log(`Using apiService.request`);
+    } else if (window.gasAPI && typeof window.gasAPI[actionName] === 'function') {
+      apiClient = window.gasAPI;
+      console.log(`Using gasAPI.${actionName}`);
+    } else if (window.google && google.script && google.script.run) {
+      console.log('Using google.script.run');
+      // Prefer google.script.run if available (Apps Script environment)
+      try {
+        let scriptRunner;
+        
+        if (params && Object.keys(params).length > 0) {
+          scriptRunner = google.script.run[actionName](params);
+        } else {
+          scriptRunner = google.script.run[actionName]();
+        }
+        
+        scriptRunner
+          .withSuccessHandler(onSuccess)
+          .withFailureHandler(onFailure);
+        return;
+      } catch (err) {
+        console.warn('google.script.run call failed:', err);
+        onFailure(err);
+        return;
       }
-      
-      // Call with parameters if provided
-      if (params && Object.keys(params).length > 0) {
-        scriptRunner = google.script.run[actionName](params);
-      } else {
-        scriptRunner = google.script.run[actionName]();
-      }
-      
-      scriptRunner
-        .withSuccessHandler(onSuccess)
-        .withFailureHandler(onFailure);
-      return;
-    } catch (err) {
-      // Fall through to api client fallback
-      console.warn('callBackendAction: google.script.run call failed, falling back to appsAPI', err);
     }
-  }
-
-  // Fallback: appsAPI / apiService
-  const apiClient = window.appsAPI || window.newAppAPI || window.viewAppAPI || window.apiService || null;
-  if (!apiClient) {
-    onFailure(new Error('No API client available'));
-    return;
-  }
-
-  // If the client has a named method, call it with parameters
-  if (typeof apiClient[actionName] === 'function') {
-    try {
-      const result = apiClient[actionName](params);
-      if (result && typeof result.then === 'function') {
-        result.then(onSuccess).catch(onFailure);
-      } else {
-        onSuccess(result);
+    
+    if (apiClient) {
+      console.log(`API client found for ${actionName}`);
+      try {
+        let result;
+        
+        if (typeof apiClient[actionName] === 'function') {
+          // Direct method call
+          result = apiClient[actionName](params);
+        } else if (typeof apiClient.request === 'function') {
+          // Generic request method
+          result = apiClient.request(actionName, params || {});
+        }
+        
+        if (result && typeof result.then === 'function') {
+          // Promise-based API
+          result.then(onSuccess).catch(onFailure);
+        } else {
+          // Synchronous API
+          onSuccess(result);
+        }
+        return;
+      } catch (err) {
+        console.error(`Error calling ${actionName}:`, err);
+        onFailure(err);
+        return;
       }
-      return;
-    } catch (err) {
-      console.error(`Error calling ${actionName} on API client:`, err);
-      onFailure(err);
-      return;
     }
+    
+    // No API client found
+    const error = new Error(`No API client available for ${actionName}. Check API initialization.`);
+    console.error(error.message);
+    console.log('Available API clients:', {
+      appsAPI: !!window.appsAPI,
+      newAppAPI: !!window.newAppAPI,
+      viewAppAPI: !!window.viewAppAPI,
+      apiService: !!window.apiService,
+      gasAPI: !!window.gasAPI,
+      googleScriptRun: !!(window.google && google.script && google.script.run)
+    });
+    
+    onFailure(error);
   }
-
-  // Use generic request method
-  if (typeof apiClient.request === 'function') {
-    apiClient.request(actionName, params || {})
-      .then(onSuccess)
-      .catch(onFailure);
-    return;
+  
+  // Try immediately, then retry after delay if no API
+  if (!window.apiService && !window.appsAPI && !window.gasAPI && 
+      !(window.google && google.script && google.script.run)) {
+    console.log('No API found, retrying in 500ms...');
+    setTimeout(tryAction, 500);
+  } else {
+    tryAction();
   }
-
-  onFailure(new Error(`API client does not support the requested action: ${actionName}`));
 }
 
 // FIXED: populateTable function with proper parameters
