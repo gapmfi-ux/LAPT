@@ -342,6 +342,40 @@ function openView(applicationData) {
   }
 }
 
+// Auto-initialize tables when DOM is ready
+document.addEventListener('DOMContentLoaded', function() {
+  console.log('AppsTables.js: DOM ready, checking if tables need initialization');
+  
+  // If we're in AppsTables.html (standalone page), auto-populate tables
+  if (document.querySelector('.applications-container')) {
+    console.log('AppsTables.js: Standalone mode detected, initializing tables');
+    
+    // Wait for API to be ready
+    if (window.apiReadyPromise) {
+      window.apiReadyPromise.then(() => {
+        setTimeout(() => {
+          // Initialize tables
+          if (typeof populateTable === 'function') {
+            const tables = [
+              { id: 'new-list', action: 'getNewApplications' },
+              { id: 'pending-list', action: 'getPendingApplications' },
+              { id: 'pending-approvals-list', action: 'getPendingApprovalApplications' },
+              { id: 'approved-list', action: 'getApprovedApplications' }
+            ];
+            
+            tables.forEach(table => {
+              if (document.getElementById(table.id)) {
+                console.log(`AppsTables.js: Auto-populating ${table.id}`);
+                populateTable(table.id, table.action, { showLoading: true });
+              }
+            });
+          }
+        }, 500);
+      });
+    }
+  }
+});
+
 // Export convenience functions if needed by other modules
 window.populateTable = populateTable;
 window.handleAppNumberClick = handleAppNumberClick;
