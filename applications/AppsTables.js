@@ -1,4 +1,5 @@
-// Applications Tables JS (fixed - resilient API calls & missing handler added)
+// Applications Tables JS (resilient API calls & robust data normalization)
+
 let currentSection = 'new';
 let applicationsData = {
     new: [],
@@ -39,6 +40,109 @@ function showSection(sectionId) {
     loadApplicationsData(sectionId);
 }
 
+/* ---- Helpers: normalize and map backend responses ---- */
+function debugLogResponse(sectionId, result) {
+    try {
+        console.group(`AppsTables: response for "${sectionId}"`);
+        console.log('Raw result:', result);
+        console.groupEnd();
+    } catch (e) {
+        console.log('AppsTables: (unable to pretty print response)', result);
+    }
+}
+
+function extractApplicationsArray(result) {
+    // Handles many shapes:
+    // - plain array
+    // - { success: true, data: [...] }
+    // - { data: { items: [...] } } or data.rows, data.items, data.applications
+    // - { result: { data: [...] } }
+    // - single object representing one application
+
+    if (!result) return [];
+
+    if (Array.isArray(result)) return result;
+
+    if (result.success && Array.isArray(result.data)) return result.data;
+
+    if (Array.isArray(result.data)) return result.data;
+
+    // Some backends return nested containers
+    if (result.data && typeof result.data === 'object') {
+        const possibleArrays = ['items', 'rows', 'applications', 'values', 'data'];
+        for (const k of possibleArrays) {
+            if (Array.isArray(result.data[k])) return result.data[k];
+        }
+        // maybe data itself holds an object where each key is an app (unlikely) — skip
+    }
+
+    if (result.result && Array.isArray(result.result.data)) return result.result.data;
+    if (result.result && Array.isArray(result.result)) return result.result;
+
+    // If object looks like a single application (has any app-like key) return single-element array
+    if (typeof result === 'object') {
+        // detect common fields that indicate an application object
+        const keys = Object.keys(result).map(k => k.toLowerCase());
+        const appIndicators = ['appnumber', 'app_number', 'appnum', 'name', 'applicant', 'amount'];
+        if (appIndicators.some(i => keys.includes(i))) {
+            return [result];
+        }
+    }
+
+    return [];
+}
+
+function pickField(obj, candidates = []) {
+    if (!obj || typeof obj !== 'object') return undefined;
+    for (const c of candidates) {
+        // exact
+        if (c in obj) return obj[c];
+        // case-insensitive
+        const matchKey = Object.keys(obj).find(k => k.toLowerCase() === c.toLowerCase());
+        if (matchKey) return obj[matchKey];
+    }
+    return undefined;
+}
+
+function normalizeApplication(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+
+    // canonical fields we want
+    const app = {};
+
+    app.appNumber = pickField(raw, ['appNumber', 'app_number', 'ApplicationNumber', 'applicationNumber', 'appNo', 'app']);
+    app.applicantName = pickField(raw, ['applicantName', 'name', 'applicant', 'applicant_name']);
+    app.name = app.applicantName || pickField(raw, ['name', 'applicantName']);
+    app.amount = pickField(raw, ['amount', 'loanAmount', 'loan_amount', 'Amount']);
+    app.date = pickField(raw, ['date', 'createdAt', 'created_at', 'Date']);
+    app.actionBy = pickField(raw, ['actionBy', 'action_by', 'actionByName', 'actionByUser']);
+    app.status = pickField(raw, ['status', 'Status', 'applicationStatus']);
+    app.stage = pickField(raw, ['stage', 'Stage']);
+    app.lastUpdatedBy = pickField(raw, ['lastUpdatedBy', 'last_updated_by', 'lastUpdated']);
+    app.purpose = pickField(raw, ['purpose', 'Purpose']);
+
+    // If amount is nested (e.g., inside data.amount.value)
+    if ((app.amount === undefined || app.amount === null) && raw.amount && typeof raw.amount === 'object') {
+        const v = pickField(raw.amount, ['value', 'amount']);
+        if (v !== undefined) app.amount = v;
+    }
+
+    // Final fallbacks
+    if (!app.appNumber) {
+        // try other likely keys
+        app.appNumber = pickField(raw, ['id', 'Id', 'applicationId', 'application_number']);
+    }
+
+    // If still missing appNumber, create a placeholder using name+timestamp so UI won't break
+    if (!app.appNumber) {
+        app.appNumber = (app.applicantName ? String(app.applicantName).slice(0, 12) : 'APP') + '-' + (Math.random().toString(36).slice(2, 8));
+        console.warn('AppsTables: generated fallback appNumber for record', app);
+    }
+
+    return app;
+}
+
+/* ---- Main data loader ---- */
 async function loadApplicationsData(sectionId) {
     let tableId;
 
@@ -109,20 +213,27 @@ async function loadApplicationsData(sectionId) {
             result = [];
         }
 
-        // Normalize result to array of applications
-        let applications = [];
-        if (Array.isArray(result)) {
-            applications = result;
-        } else if (result && result.success && Array.isArray(result.data)) {
-            applications = result.data;
-        } else if (result && Array.isArray(result.data)) {
-            applications = result.data;
-        } else if (result && typeof result === 'object' && Object.keys(result).length && 'appNumber' in result) {
-            // single object returned
-            applications = [result];
-        } else {
-            applications = [];
-        }
+        // Debug log raw response
+        debugLogResponse(sectionId, result);
+
+        // Normalize result to array of raw application objects
+        const rawApps = extractApplicationsArray(result);
+
+        // Map and normalize fields for each application
+        const applications = rawApps.map(r => {
+            const normalized = normalizeApplication(r);
+            if (!normalized) {
+                // If normalizeApplication fails, still return a minimal object
+                return {
+                    appNumber: (r && r.appNumber) || JSON.stringify(r).slice(0, 24),
+                    applicantName: (r && (r.name || r.applicantName)) || 'N/A',
+                    amount: r && (r.amount || r.Amount) || 0,
+                    date: r && (r.date || r.Date || r.createdAt) || '',
+                    actionBy: r && (r.actionBy || r.action_by) || ''
+                };
+            }
+            return normalized;
+        });
 
         // Store data
         applicationsData[sectionId] = applications;
@@ -135,7 +246,7 @@ async function loadApplicationsData(sectionId) {
         tbody.innerHTML = `
             <tr>
                 <td colspan="5" class="error">
-                    <i class="fas fa-exclamation-triangle"></i> Error loading applications: ${error.message}
+                    <i class="fas fa-exclamation-triangle"></i> Error loading applications: ${error.message || error}
                 </td>
             </tr>
         `;
