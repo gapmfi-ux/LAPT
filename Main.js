@@ -677,6 +677,44 @@ function showApplicationNotification(userName, userRole, count) {
     }
 }
 
+// Add to Main.js for debugging
+window.debugTables = function() {
+    console.log('=== TABLE DEBUG ===');
+    
+    // Check AppsTables.js
+    console.log('1. AppsTables.js Status:');
+    console.log('   - populateTable:', typeof window.populateTable);
+    console.log('   - handleAppNumberClick:', typeof window.handleAppNumberClick);
+    console.log('   - callBackendAction:', typeof window.callBackendAction);
+    console.log('   - initializeAppsTables:', typeof window.initializeAppsTables);
+    
+    // Check current tables
+    console.log('2. Current Tables:');
+    ['new-list', 'pending-list', 'pending-approvals-list', 'approved-list'].forEach(id => {
+        const table = document.getElementById(id);
+        console.log(`   - ${id}:`, table ? 'Found' : 'Not found');
+        if (table) {
+            console.log(`     Rows: ${table.children.length}`);
+            console.log(`     HTML length: ${table.innerHTML.length}`);
+        }
+    });
+    
+    // Check current view
+    console.log('3. Current View:');
+    console.log('   - main-content exists:', !!document.getElementById('main-content'));
+    console.log('   - Active section:', document.querySelector('.menu-btn.active')?.dataset?.section);
+    
+    // Try to manually initialize
+    console.log('4. Manual Initialization:');
+    if (typeof window.initializeAppsTables === 'function') {
+        console.log('   Calling initializeAppsTables...');
+        window.initializeAppsTables();
+        return 'Initialization triggered';
+    } else {
+        return 'initializeAppsTables not available';
+    }
+};
+
 // ===== MAKE FUNCTIONS GLOBALLY AVAILABLE =====
 window.showSection = showSection;
 window.refreshApplications = refreshApplications;
