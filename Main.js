@@ -56,49 +56,32 @@ async function initializeAPI() {
 }
 
 // ===== INITIALIZE ON LOAD =====
-document.addEventListener('DOMContentLoaded', async function() {
-    console.log('DOM loaded, initializing application...');
-
-    // Immediately hide the loading overlay
-    hideLoading();
-
-    // Initialize API
-    const apiInitialized = await initializeAPI();
-    if (!apiInitialized) {
-        showErrorModal('Failed to initialize application. Please refresh the page.');
-        return;
-    }
-
-    // Check authentication
-    if (!checkAuthentication()) {
-        return;
-    }
-
-    // Cache elements
-    cacheElements();
-
-    // Set current user display
-    const user = getCurrentUser();
-    if (user) {
-        setLoggedInUser(user.fullName || user.name, user.role);
-    } else {
-        const loggedInName = localStorage.getItem('loggedInName');
-        const userRole = localStorage.getItem('userRole');
-        setLoggedInUser(loggedInName, userRole);
-    }
-
-    // Set current date
-    if (cachedElements['current-date']) {
-        cachedElements['current-date'].textContent = new Date().toLocaleDateString('en-US', {
-            weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
-        });
-    }
-
-    // Show dashboard
-    showDashboard();
-
-    // Setup event listeners
-    setupEventListeners();
+// In Main.js, update the DOMContentLoaded event
+document.addEventListener('DOMContentLoaded', function() {
+  console.log('DOM loaded, initializing application...');
+  
+  // Hide loading overlay when DOM is ready
+  const loadingOverlay = document.getElementById('loading');
+  if (loadingOverlay) {
+    loadingOverlay.style.display = 'none';
+  }
+  
+  // Show main app container
+  const appContainer = document.getElementById('app-container');
+  if (appContainer) {
+    appContainer.classList.remove('hidden');
+  }
+  
+  // Initialize date display
+  updateCurrentDate();
+  
+  // Setup global event listeners
+  setupGlobalEventListeners();
+  
+  // Initialize application tables
+  initializeApplicationTables();
+  
+  console.log('Main.js initialized successfully');
 });
 
 // Emergency timeout
