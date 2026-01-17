@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
   <!-- CSS Files -->
   <link rel="stylesheet" href="Main.css">
+  <link rel="stylesheet" href="new-application/newApps.css">
   <!-- PWA Manifest (optional) -->
   <link rel="manifest" href="manifest.json">
   <!-- Favicon -->
@@ -56,7 +57,7 @@
     <!-- Top Menu -->
     <div class="top-menu">
       <div class="menu-left">
-        <button class="add-app-btn" onclick="showNewApplicationModal()">
+        <button class="add-app-btn" id="add-new-app-btn">
           <i class="fas fa-plus"></i> Add New Application
         </button>
       </div>
@@ -107,22 +108,38 @@
       <!-- Main Content Area -->
       <div class="main-content" id="main-content">
         <!-- Content will be loaded dynamically here -->
-         </div>
-        </div>
       </div>
     </div>
   </div>
 
-  <!-- Load APIs: ensure the loader file exists at api/api-loader.js (create api/ and copy api-loader.js into it),
-       OR change this src to "api-loader.js" if you placed api-loader.js at repo root. -->
-  <script src="api/api-loader.js"></script>
+  <!-- Load APIs -->
+  <script src="api-loader.js"></script>
 
-  <!-- Optional local mock API to see demo data while backend is not available.
-       Remove this line on production once real APIs are hosted. -->
+  <!-- Optional local mock API to see demo data while backend is not available -->
   <script src="mock-api.js"></script>
-<script src="newApps.js"></script>
+  
+  <!-- New Application Modal Script -->
+  <script src="new-application/newApps.js"></script>
+  
   <!-- Main app script -->
   <script src="Main.js"></script>
+  
+  <script>
+    // Initialize the Add New Application button
+    document.addEventListener('DOMContentLoaded', function() {
+      const addButton = document.getElementById('add-new-app-btn');
+      if (addButton) {
+        addButton.addEventListener('click', function() {
+          if (typeof window.showNewApplicationModal === 'function') {
+            window.showNewApplicationModal();
+          } else {
+            console.error('showNewApplicationModal is not defined');
+            alert('Application form failed to load. Please refresh the page.');
+          }
+        });
+      }
+    });
+  </script>
   
 </body>
 </html>
