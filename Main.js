@@ -99,10 +99,16 @@ document.addEventListener('DOMContentLoaded', async function() {
 
     // Setup event listeners
     setupEventListeners();
-
-    // Update welcome stats
-    await updateWelcomeStats();
 });
+
+// Emergency timeout
+setTimeout(function() {
+    const loading = document.getElementById('loading');
+    if (loading && loading.style.display !== 'none') {
+        console.warn('Emergency: Forcing loading overlay to hide');
+        loading.style.display = 'none';
+    }
+}, 3000);
 
 // ===== AUTHENTICATION CHECK =====
 function checkAuthentication() {
@@ -193,7 +199,8 @@ function setLoggedInUser(name, role = '') {
 }
 
 function setupEventListeners() {
-    console.log('Global event listeners setup');
+    console.log('Global event listeners setup in Main.js');
+    // NOTE: Button handlers are now in button-handlers.js
 }
 
 // ===== DASHBOARD FUNCTIONS =====
@@ -207,10 +214,12 @@ function showDashboard() {
 }
 
 async function showSection(sectionId) {
+    // Update active menu button
     document.querySelectorAll('.menu-btn').forEach(btn => btn.classList.remove('active'));
-    const activeBtn = document.querySelector(`.menu-btn[onclick*="showSection('${sectionId}')"]`);
+    const activeBtn = document.querySelector(`.menu-btn[data-section="${sectionId}"]`);
     if (activeBtn) activeBtn.classList.add('active');
 
+    // Load the section content
     await loadSectionContent(sectionId);
 }
 
@@ -312,66 +321,6 @@ async function loadJS(filePath) {
         };
         script.onerror = () => reject(new Error(`Failed to load script: ${filePath}`));
         document.body.appendChild(script);
-    });
-}
-
-// ===== WELCOME STATS =====
-async function updateWelcomeStats() {
-    try {
-        const apiClient = window.apiService || window.gasAPI || window.appsAPI || window.newAppAPI || null;
-
-        if (!apiClient || (typeof apiClient.getAllApplicationCounts !== 'function' && typeof apiClient.request !== 'function')) {
-            console.warn('API not available for stats');
-            updateWelcomeStatsWithDefaults();
-            return;
-        }
-
-        let result;
-        if (typeof apiClient.getAllApplicationCounts === 'function') {
-            result = await apiClient.getAllApplicationCounts();
-        } else if (typeof apiClient.request === 'function') {
-            result = await apiClient.request('getAllApplicationCounts');
-        }
-
-        if (result && result.success && result.data) {
-            const counts = result.data;
-            updateWelcomeStatsUI(counts);
-        } else if (result && typeof result === 'object' && ('new' in result || 'pending' in result)) {
-            updateWelcomeStatsUI(result);
-        } else {
-            updateWelcomeStatsWithDefaults();
-        }
-    } catch (error) {
-        console.error('Error updating stats:', error);
-        updateWelcomeStatsWithDefaults();
-    }
-}
-
-function updateWelcomeStatsUI(counts) {
-    const badgeElements = {
-        'new-count': counts.new || 0,
-        'pending-count': counts.pending || 0,
-        'pending-approvals-count': counts.pendingApprovals || 0,
-        'approved-count': counts.approved || 0
-    };
-
-    for (const [id, count] of Object.entries(badgeElements)) {
-        const element = document.getElementById(id);
-        if (element) {
-            element.textContent = count;
-            element.style.display = count > 0 ? 'inline-block' : 'none';
-        }
-    }
-}
-
-function updateWelcomeStatsWithDefaults() {
-    const elements = ['new-count', 'pending-count', 'pending-approvals-count', 'approved-count'];
-    elements.forEach(id => {
-        const element = document.getElementById(id);
-        if (element) {
-            element.textContent = '0';
-            element.style.display = 'none';
-        }
     });
 }
 
@@ -491,11 +440,76 @@ function updateBadgeCount(status, count) {
 function refreshApplications() {
     const activeSection = document.querySelector('.menu-btn.active');
     if (activeSection) {
-        const onclickAttr = activeSection.getAttribute('onclick');
-        const match = onclickAttr.match(/showSection\('([^']+)'\)/);
-        if (match) {
-            showSection(match[1]);
+        const section = activeSection.getAttribute('data-section');
+        if (section) {
+            showSection(section);
         }
+    }
+}
+
+// ===== NOTIFICATIONS =====
+function initializeBrowserNotifications() {
+    if (!("Notification" in window)) {
+        console.log('Browser notifications not supported');
+        return;
+    }
+
+    switch (Notification.permission) {
+        case "granted":
+            setupNotificationListener();
+            break;
+        case "denied":
+            console.log('Notifications denied by user');
+            break;
+        case "default":
+            console.log('Notification permission not yet requested');
+            break;
+    }
+}
+
+function setupNotificationListener() {
+    if (notificationCheckInterval) clearInterval(notificationCheckInterval);
+    notificationCheckInterval = setInterval(function() {
+        checkForNewApplications();
+    }, 30000);
+}
+
+async function checkForNewApplications() {
+    if (document.visibilityState !== 'visible') {
+        try {
+            const user = getCurrentUser();
+            const apiClient = window.authAPI || window.appsAPI || window.apiService || window.gasAPI || null;
+            if (user && apiClient && typeof apiClient.getApplicationsCountForUser === 'function') {
+                const result = await apiClient.getApplicationsCountForUser(user.userName || user.fullName);
+                const count = (result && result.success && result.data && result.data.count) ? result.data.count : (typeof result === 'number' ? result : (result && result.count) ? result.count : 0);
+
+                if (count > lastAppCount) {
+                    showApplicationNotification(user.fullName || user.name, user.role, count);
+                    lastAppCount = count;
+                }
+            }
+        } catch (error) {
+            console.error('Error checking for new applications:', error);
+        }
+    }
+}
+
+function showApplicationNotification(userName, userRole, count) {
+    if (Notification.permission === "granted" && document.visibilityState !== 'visible') {
+        const notification = new Notification("New Application Assignment", {
+            body: `${userName} has ${count} new application(s) for your action${userRole ? ` as ${userRole}` : ''}`,
+            icon: "https://img.icons8.com/color/192/000000/loan.png",
+            tag: "loan-application",
+            requireInteraction: true
+        });
+
+        notification.onclick = function() {
+            window.focus();
+            notification.close();
+            refreshApplications();
+        };
+
+        setTimeout(() => { notification.close(); }, 10000);
     }
 }
 
@@ -509,7 +523,6 @@ window.showErrorModal = showErrorModal;
 window.closeErrorModal = closeErrorModal;
 window.showConfirmationModal = showConfirmationModal;
 window.closeConfirmationModal = closeConfirmationModal;
-window.updateWelcomeStats = updateWelcomeStats;
 window.showLoading = showLoading;
 window.hideLoading = hideLoading;
 
