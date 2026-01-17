@@ -1,5 +1,3 @@
-[file name]: newApps.js
-[file content begin]
 // newApps.js — dual API support (browser API objects or google.script.run)
 // Full file: new application modal logic, form building, save/submit actions.
 
@@ -950,4 +948,3 @@ window.debugModal = function() {
     console.log('Modal forced open via debug');
   }
 };
-[file content end]
