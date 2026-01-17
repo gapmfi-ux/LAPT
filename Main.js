@@ -272,9 +272,10 @@ async function loadSectionContent(sectionId) {
                     initializeUserManagement(sectionId);
                 }
             } else {
-                if (typeof initializeApplicationsSection === 'function') {
+                // IMPORTANT: Initialize AppsTables with a delay to ensure DOM is ready
+                setTimeout(async () => {
                     await initializeApplicationsSection(sectionId);
-                }
+                }, 300);
             }
         }
 
@@ -289,6 +290,169 @@ async function loadSectionContent(sectionId) {
     } finally {
         hideLoading();
     }
+}
+
+// Add this function to Main.js
+async function initializeApplicationsSection(sectionId) {
+    console.log(`Main.js: Initializing applications section: ${sectionId}`);
+    
+    // Wait a moment for AppsTables.js to fully initialize
+    let retries = 0;
+    const maxRetries = 10;
+    
+    function waitForAppsTables() {
+        return new Promise((resolve) => {
+            function check() {
+                if (typeof window.populateTable === 'function') {
+                    console.log('AppsTables.js functions are available');
+                    resolve();
+                } else if (retries < maxRetries) {
+                    retries++;
+                    console.log(`Waiting for AppsTables... (${retries}/${maxRetries})`);
+                    setTimeout(check, 200);
+                } else {
+                    console.warn('AppsTables.js not fully loaded after waiting');
+                    resolve();
+                }
+            }
+            check();
+        });
+    }
+    
+    await waitForAppsTables();
+    
+    // Map sectionId to table ID and action
+    const sectionMap = {
+        'new': { tableId: 'new-list', action: 'getNewApplications' },
+        'pending': { tableId: 'pending-list', action: 'getPendingApplications' },
+        'pending-approvals': { tableId: 'pending-approvals-list', action: 'getPendingApprovalApplications' },
+        'approved': { tableId: 'approved-list', action: 'getApprovedApplications' }
+    };
+    
+    const section = sectionMap[sectionId];
+    if (!section) {
+        console.error(`Unknown section: ${sectionId}`);
+        return;
+    }
+    
+    // Make sure the table exists
+    const tableElement = document.getElementById(section.tableId);
+    if (!tableElement) {
+        console.error(`Table element not found: ${section.tableId}`);
+        
+        // Try to find it in the document
+        setTimeout(() => {
+            const foundElement = document.getElementById(section.tableId);
+            if (foundElement && typeof window.populateTable === 'function') {
+                console.log(`Found table ${section.tableId} after delay, populating...`);
+                window.populateTable(section.tableId, section.action, { showLoading: true });
+            }
+        }, 500);
+        return;
+    }
+    
+    // Check if table is already populated
+    const hasRows = tableElement.children.length > 0;
+    const hasContent = tableElement.innerHTML.trim().length > 0;
+    
+    if (!hasRows || tableElement.innerHTML.includes('Loading') || !hasContent) {
+        console.log(`Populating table ${section.tableId} with ${section.action}`);
+        
+        // Use populateTable if available
+        if (typeof window.populateTable === 'function') {
+            window.populateTable(section.tableId, section.action, { showLoading: true });
+        } 
+        // Fallback: use API directly
+        else if (window.appsAPI || window.apiService) {
+            console.log('Using API directly to load data');
+            await loadTableDirectly(section.tableId, section.action);
+        } else {
+            console.error('No API client available');
+            tableElement.innerHTML = '<tr><td colspan="5" class="error">Failed to load data</td></tr>';
+        }
+    } else {
+        console.log(`Table ${section.tableId} already has data`);
+    }
+    
+    // Setup click handlers for app links
+    setupAppLinkHandlers();
+}
+
+// Fallback function to load table data directly
+async function loadTableDirectly(tableId, action) {
+    try {
+        const apiClient = window.appsAPI || window.apiService || window.gasAPI;
+        if (!apiClient) {
+            throw new Error('No API client available');
+        }
+        
+        let result;
+        if (typeof apiClient[action] === 'function') {
+            result = await apiClient[action]();
+        } else if (typeof apiClient.request === 'function') {
+            result = await apiClient.request(action);
+        } else {
+            throw new Error(`Cannot call ${action}`);
+        }
+        
+        const table = document.getElementById(tableId);
+        if (!table) return;
+        
+        // Simple table population (you can expand this)
+        if (result && result.success && Array.isArray(result.data)) {
+            const rows = result.data.map(app => `
+                <tr>
+                    <td class="app-number">
+                        <a href="javascript:void(0)" class="app-number-link" onclick="handleAppNumberClick('${app.appNumber || app.id}')">
+                            ${app.appNumber || app.id}
+                        </a>
+                    </td>
+                    <td class="applicant-name">${app.applicantName || app.name || 'N/A'}</td>
+                    <td class="amount">${formatCurrency(app.amount || 0)}</td>
+                    <td class="date">${app.date ? new Date(app.date).toLocaleDateString() : 'N/A'}</td>
+                    <td class="action-by">${app.actionBy || app.action_by || 'N/A'}</td>
+                </tr>
+            `).join('');
+            
+            table.innerHTML = rows || '<tr><td colspan="5" class="no-data">No applications found</td></tr>';
+        } else {
+            table.innerHTML = '<tr><td colspan="5" class="error">Failed to load data</td></tr>';
+        }
+    } catch (error) {
+        console.error(`Error loading ${action}:`, error);
+        const table = document.getElementById(tableId);
+        if (table) {
+            table.innerHTML = `<tr><td colspan="5" class="error">Error: ${error.message}</td></tr>`;
+        }
+    }
+}
+
+// Helper function to format currency
+function formatCurrency(amount) {
+    if (typeof amount === 'number' || !isNaN(amount)) {
+        return new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: 'USD'
+        }).format(Number(amount));
+    }
+    return '$0.00';
+}
+
+// Setup click handlers for application links
+function setupAppLinkHandlers() {
+    // Delegate click events for app links
+    document.addEventListener('click', function(e) {
+        if (e.target.classList.contains('app-number-link')) {
+            const appNumber = e.target.textContent.trim();
+            if (appNumber && typeof window.handleAppNumberClick === 'function') {
+                window.handleAppNumberClick(appNumber);
+            } else if (appNumber) {
+                // Fallback
+                showErrorModal(`Cannot open application ${appNumber}. Please try refreshing the page.`);
+            }
+            e.preventDefault();
+        }
+    });
 }
 
 async function loadComponent(filePath) {
