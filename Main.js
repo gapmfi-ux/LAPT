@@ -497,32 +497,60 @@ function showWarning(message) {
 
 // ===== APPLICATION FUNCTIONS =====
 function showNewApplicationModal() {
-    showLoading('Preparing new application...');
-
-    const apiClient = window.newAppAPI || window.apiService || window.gasAPI || null;
-
-    if (apiClient && typeof apiClient.getNewApplicationContext === 'function') {
-        apiClient.getNewApplicationContext()
-            .then(result => {
-                hideLoading();
-                if (result && result.success && result.data) {
-                    showSuccessModal(`New Application Modal - Context loaded. Next app number: ${result.data.nextAppNumber || result.appNumber}`);
-                } else if (result && result.appNumber) {
-                    showSuccessModal(`New Application Modal - Context loaded. Next app number: ${result.appNumber}`);
-                } else {
-                    showErrorModal('Failed to load new application context');
+    // Check if the modal HTML is already loaded
+    const modal = document.getElementById('newApplicationModal');
+    
+    if (!modal) {
+        // Load the modal HTML dynamically
+        showLoading('Loading application form...');
+        
+        fetch('newApps.html')
+            .then(response => response.text())
+            .then(html => {
+                // Create a temporary container to parse the HTML
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = html;
+                
+                // Extract the modal content
+                const modalContent = tempDiv.querySelector('#newApplicationModal');
+                
+                if (modalContent) {
+                    // Append to body
+                    document.body.appendChild(modalContent);
+                    
+                    // Load the JS file
+                    return loadJS('newApps.js').then(() => {
+                        hideLoading();
+                        // Call the actual modal function from newApps.js
+                        if (typeof window.showNewApplicationModal === 'function') {
+                            window.showNewApplicationModal();
+                        }
+                    });
                 }
             })
             .catch(error => {
                 hideLoading();
-                showErrorModal(`Error: ${error.message}`);
+                showErrorModal('Failed to load application form: ' + error.message);
             });
     } else {
-        hideLoading();
-        showErrorModal('API service not available for new applications');
+        // Modal already exists, just show it
+        if (typeof window.showNewApplicationModal === 'function') {
+            window.showNewApplicationModal();
+        } else {
+            // Load JS first then show
+            showLoading('Loading application form...');
+            loadJS('newApps.js').then(() => {
+                hideLoading();
+                if (typeof window.showNewApplicationModal === 'function') {
+                    window.showNewApplicationModal();
+                }
+            }).catch(error => {
+                hideLoading();
+                showErrorModal('Failed to load application script: ' + error.message);
+            });
+        }
     }
 }
-
 async function logout() {
     showConfirmationModal('Are you sure you want to logout?', async (confirmed) => {
         if (confirmed) {
