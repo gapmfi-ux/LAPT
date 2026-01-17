@@ -497,58 +497,30 @@ function showWarning(message) {
 
 // ===== APPLICATION FUNCTIONS =====
 function showNewApplicationModal() {
-    // Check if the modal HTML is already loaded
-    const modal = document.getElementById('newApplicationModal');
+    console.log('Opening new application modal...');
     
-    if (!modal) {
-        // Load the modal HTML dynamically
+    // First, ensure the modal script is loaded
+    if (typeof window.showNewApplicationModal !== 'function') {
         showLoading('Loading application form...');
         
-        fetch('newApps.html')
-            .then(response => response.text())
-            .then(html => {
-                // Create a temporary container to parse the HTML
-                const tempDiv = document.createElement('div');
-                tempDiv.innerHTML = html;
-                
-                // Extract the modal content
-                const modalContent = tempDiv.querySelector('#newApplicationModal');
-                
-                if (modalContent) {
-                    // Append to body
-                    document.body.appendChild(modalContent);
-                    
-                    // Load the JS file
-                    return loadJS('newApps.js').then(() => {
-                        hideLoading();
-                        // Call the actual modal function from newApps.js
-                        if (typeof window.showNewApplicationModal === 'function') {
-                            window.showNewApplicationModal();
-                        }
-                    });
-                }
-            })
-            .catch(error => {
-                hideLoading();
-                showErrorModal('Failed to load application form: ' + error.message);
-            });
+        // Dynamically load the modal script
+        const script = document.createElement('script');
+        script.src = 'newApps.js';
+        script.onload = () => {
+            hideLoading();
+            // Now call the function from newApps.js
+            if (typeof window.showNewApplicationModal === 'function') {
+                window.showNewApplicationModal();
+            }
+        };
+        script.onerror = () => {
+            hideLoading();
+            showErrorModal('Failed to load application form');
+        };
+        document.body.appendChild(script);
     } else {
-        // Modal already exists, just show it
-        if (typeof window.showNewApplicationModal === 'function') {
-            window.showNewApplicationModal();
-        } else {
-            // Load JS first then show
-            showLoading('Loading application form...');
-            loadJS('newApps.js').then(() => {
-                hideLoading();
-                if (typeof window.showNewApplicationModal === 'function') {
-                    window.showNewApplicationModal();
-                }
-            }).catch(error => {
-                hideLoading();
-                showErrorModal('Failed to load application script: ' + error.message);
-            });
-        }
+        // Script already loaded, just call the function
+        window.showNewApplicationModal();
     }
 }
 async function logout() {
