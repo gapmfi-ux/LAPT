@@ -496,7 +496,8 @@ function showWarning(message) {
 }
 
 // ===== APPLICATION FUNCTIONS =====
-function showNewApplicationModal() {
+// In Main.js - CHANGE THIS FUNCTION NAME
+function openNewApplicationModal() {  // Changed from showNewApplicationModal
     console.log('Opening new application modal...');
     
     // First, ensure the modal script is loaded
@@ -523,6 +524,9 @@ function showNewApplicationModal() {
         window.showNewApplicationModal();
     }
 }
+
+// Update the button in index.html to call the new function name:
+// Change onclick="showNewApplicationModal()" to onclick="openNewApplicationModal()"
 async function logout() {
     showConfirmationModal('Are you sure you want to logout?', async (confirmed) => {
         if (confirmed) {
