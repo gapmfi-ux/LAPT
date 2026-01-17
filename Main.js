@@ -496,37 +496,7 @@ function showWarning(message) {
 }
 
 // ===== APPLICATION FUNCTIONS =====
-// In Main.js - CHANGE THIS FUNCTION NAME
-function openNewApplicationModal() {  // Changed from showNewApplicationModal
-    console.log('Opening new application modal...');
-    
-    // First, ensure the modal script is loaded
-    if (typeof window.showNewApplicationModal !== 'function') {
-        showLoading('Loading application form...');
-        
-        // Dynamically load the modal script
-        const script = document.createElement('script');
-        script.src = 'newApps.js';
-        script.onload = () => {
-            hideLoading();
-            // Now call the function from newApps.js
-            if (typeof window.showNewApplicationModal === 'function') {
-                window.showNewApplicationModal();
-            }
-        };
-        script.onerror = () => {
-            hideLoading();
-            showErrorModal('Failed to load application form');
-        };
-        document.body.appendChild(script);
-    } else {
-        // Script already loaded, just call the function
-        window.showNewApplicationModal();
-    }
-}
 
-// Update the button in index.html to call the new function name:
-// Change onclick="showNewApplicationModal()" to onclick="openNewApplicationModal()"
 async function logout() {
     showConfirmationModal('Are you sure you want to logout?', async (confirmed) => {
         if (confirmed) {
