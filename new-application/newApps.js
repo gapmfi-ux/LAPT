@@ -1,3 +1,5 @@
+[file name]: newApps.js
+[file content begin]
 // newApps.js — dual API support (browser API objects or google.script.run)
 // Full file: new application modal logic, form building, save/submit actions.
 
@@ -106,6 +108,8 @@ function resetNewApplicationModal() {
 
 /* ---- Show / New application modal ---- */
 function showNewApplicationModal(existingAppNumber = null) {
+  console.log('showNewApplicationModal called with:', existingAppNumber);
+  
   if (existingAppNumber) {
     loadExistingApplication(existingAppNumber);
     return;
@@ -128,7 +132,18 @@ function showNewApplicationModal(existingAppNumber = null) {
 
       const modal = document.getElementById('newApplicationModal');
       if (modal) {
+        console.log('Modal found, showing it...');
+        
+        // FIXED: Use CSS class system instead of inline style
+        modal.classList.add('active');
+        // Also set display block for browsers that need it
         modal.style.display = 'block';
+        
+        // Force reflow and opacity transition
+        setTimeout(() => {
+          modal.style.opacity = '1';
+        }, 10);
+        
         resetNewApplicationModal();
         const requestedTab = sessionStorage.getItem('editTab');
         if (requestedTab) {
@@ -137,6 +152,13 @@ function showNewApplicationModal(existingAppNumber = null) {
         } else {
           openTab('tab1');
         }
+        
+        // Call initialization if available
+        if (window.newApplicationModalInit) {
+          window.newApplicationModalInit();
+        }
+      } else {
+        console.error('Modal not found! Looking for #newApplicationModal');
       }
     })
     .catch(err => {
@@ -176,13 +198,25 @@ function loadExistingApplication(appNumber) {
 
         const modal = document.getElementById('newApplicationModal');
         if (modal) {
+          console.log('Modal found for editing, showing it...');
+          
+          // FIXED: Use CSS class system
+          modal.classList.add('active');
           modal.style.display = 'block';
+          setTimeout(() => {
+            modal.style.opacity = '1';
+          }, 10);
+          
           const requestedTab = sessionStorage.getItem('editTab');
           if (requestedTab) {
             openTab(requestedTab);
             sessionStorage.removeItem('editTab');
           } else {
             openTab('tab1');
+          }
+          
+          if (window.newApplicationModalInit) {
+            window.newApplicationModalInit();
           }
         }
 
@@ -201,13 +235,21 @@ function loadExistingApplication(appNumber) {
 
 /* ---- Modal close / tab navigation ---- */
 function closeModal() {
+  console.log('Closing modal...');
   const modal = document.getElementById('newApplicationModal');
   if (modal) {
-    modal.style.display = 'none';
-    resetNewApplicationModal();
-    window.currentAppNumber = '';
-    const appNumberEl = document.getElementById('app-number');
-    if (appNumberEl) appNumberEl.textContent = '';
+    // FIXED: Remove active class and fade out
+    modal.classList.remove('active');
+    modal.style.opacity = '0';
+    
+    // Wait for opacity transition before hiding completely
+    setTimeout(() => {
+      modal.style.display = 'none';
+      resetNewApplicationModal();
+      window.currentAppNumber = '';
+      const appNumberEl = document.getElementById('app-number');
+      if (appNumberEl) appNumberEl.textContent = '';
+    }, 250);
   }
 }
 
@@ -897,3 +939,15 @@ window.loadExistingApplication = loadExistingApplication;
 window.saveDraftFromModal = saveDraftFromModal;
 window.saveNewApplication = saveNewApplication;
 window.submitNewApplication = submitNewApplication;
+
+// Debug helper
+window.debugModal = function() {
+  const modal = document.getElementById('newApplicationModal');
+  if (modal) {
+    modal.classList.add('active');
+    modal.style.display = 'block';
+    modal.style.opacity = '1';
+    console.log('Modal forced open via debug');
+  }
+};
+[file content end]
